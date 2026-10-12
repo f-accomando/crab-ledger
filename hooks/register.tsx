@@ -138,8 +138,8 @@ export const register: Register = on => {
         <Box flexDirection="column" gap={1}>
           {draw('head', headerSvg(W, r), `Efficiency ${Math.round(r.week.eff)}: ${verdict}`, 156)}
           {draw('week', weekSvg(W, r), `Last 7 days: ${usd(r.week.cost)}, ${num(r.week.tok)} tokens, ${dur(r.week.min)}`, 146)}
-          <Text bold>Day by day</Text>
-          {draw('days', daysSvg(W, r, count), 'Cost per day', 30 + Math.min(count, r.days.length) * 34)}
+          <Text bold>Day by day <Text dimColor>(bar = efficiency, number = cost)</Text></Text>
+          {draw('days', daysSvg(W, r, count), 'Efficiency per day', 30 + Math.min(count, r.days.length) * 34)}
           <Text bold>Agents by type and model <Text dimColor>(7 days)</Text></Text>
           {r.agents.length === 0 ? <Text dimColor>none</Text> : draw('ag', agentsSvg(W, r), 'Agents by type and model', agentsHeight(r.agents.length))}
           <Text bold>Repeated tasks <Text dimColor>(3+ times in 7 days, time waited)</Text></Text>

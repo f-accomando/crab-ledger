@@ -348,6 +348,26 @@ for (const c of repos.values()) {
   } catch {}
 }
 
+// ---- today's uncommitted work: counted as an estimate until it is committed
+let pendAdd = 0, pendDel = 0
+{
+  const seen = new Set()
+  for (const c of tops) {
+    try {
+      const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: c, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      if (seen.has(top)) continue
+      seen.add(top)
+      const o = execFileSync('git', ['diff', 'HEAD', '--numstat'], { cwd: top, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] })
+      for (const l of o.split('\n')) {
+        const [a, b] = l.split('\t')
+        if (!l || a === '-' || b === '-') continue
+        if (+a + +b > 3000) continue
+        pendAdd += +a; pendDel += +b
+      }
+    } catch {}
+  }
+}
+
 // ---- report
 const union = iv => {
   iv.sort((x, y) => x[0] - y[0])
@@ -367,8 +387,10 @@ for (let i = DAYS - 1; i >= 0; i--) {
   const r = days[k] || dayRow(k)
   const tok = r.in + r.out + r.cw + r.cr
   const min = union(r.iv)
-  const lines = r.add + r.del
-  out.push({ day: k, tok, out: r.out, cost: r.cost, min, add: r.add, del: r.del, lines, eff: 0, agentShare: r.cost ? r.agentCost / r.cost : 0 })
+  const pend = i === 0 ? pendAdd + pendDel : 0
+  const add = r.add + (i === 0 ? pendAdd : 0), del = r.del + (i === 0 ? pendDel : 0)
+  const lines = add + del
+  out.push({ day: k, tok, out: r.out, cost: r.cost, min, add, del, lines, eff: 0, est: pend > 0, pend, agentShare: r.cost ? r.agentCost / r.cost : 0 })
 }
 // efficiency: geometric mean of lines per dollar and lines per hour
 const eff = (lines, cost, min) => (lines > 0 && cost > 0 && min > 0 ? Math.sqrt((lines / cost) * (lines / (min / 60))) : 0)
@@ -390,7 +412,7 @@ if (act.length >= 2) {
   const a = raw(rec), b = raw(bef)
   if (a > 0 && b > 0) trend = { pct: (a / b - 1) * 100, recent: cut, before: Math.min(7, act.length - cut) }
 }
-const week = { ...w, eff: (raw(w) / base) * 100, trend }
+const week = { ...w, eff: (raw(w) / base) * 100, trend, est: out[out.length - 1].est, pend: out[out.length - 1].pend }
 // re-reads over the last 7 days
 const recent = new Set(out.slice(-7).map(x => x.day))
 const top = Object.values(rereads)
@@ -468,6 +490,16 @@ if (mix.out / tot > 0.25) {
   if (ro > 0 && rs > 1.5 * ro) {
     tips.push({ kind: 'agentyield', save: fam.opus.cost * 0.3 * 0.4, title: 'Sonnet subagents write more per dollar',
       why: `Sonnet subagents wrote ${Math.round(rs)} lines per $ against ${Math.round(ro)} for Opus ones this week. Route mechanical edits and tests to them.` })
+  }
+}
+{
+  const by = t => { const rows = agentRows.filter(r => r.type === t); return { cost: sum(rows, r => r.cost), runs: sum(rows, r => r.runs) } }
+  const dp = by('deep'), st = by('standard')
+  const dAvg = dp.runs ? dp.cost / dp.runs : 0
+  const sAvg = st.runs ? st.cost / st.runs : 0
+  if (dp.runs >= 2 && dp.cost > 0.1 * (w.cost || 1) && (sAvg === 0 ? dAvg > 10 : dAvg > 2 * sAvg)) {
+    tips.push({ kind: 'deepscope', save: dp.cost * 0.4, title: 'Scope deep runs to a short brief',
+      why: `${dp.runs} deep runs cost ${usd(dp.cost)} (${usd(dAvg)} each${sAvg ? ` against ${usd(sAvg)} for standard` : ''}). Have an Explore or light agent find files, line ranges and symbols first, then hand deep that note only: a small context at xhigh costs a fraction.` })
   }
 }
 {

@@ -105,7 +105,7 @@ export const headerSvg = (W: number, r: Report): string => {
 <text x="94" y="62" font-size="38" font-weight="700" fill="${col}">${Math.round(r.week.eff)}</text>
 <text class="m" x="${94 + textW(String(Math.round(r.week.eff)), 38) + 6}" y="62" font-size="12">pt</text>
 <text x="94" y="82" font-size="13" font-weight="600" fill="${col}">${xml(verdict)}</text>
-<text class="m" x="94" y="98" font-size="10.5">100 = your typical day · lines per $ and per hour</text>
+<text class="m" x="94" y="98" font-size="10.5">${r.week.est ? `estimate · ${num(r.week.pend)} uncommitted lines counted · ` : ''}100 = your typical day · lines per $ and per hour</text>
 <line class="ln" x1="6" x2="${W - 6}" y1="${yBase}" y2="${yBase}" stroke-width="1" stroke-dasharray="3 3"/>
 ${bars}
 <text class="m" x="6" y="114" font-size="10">last ${n} days</text>`
@@ -159,25 +159,28 @@ ${legend}`,
 
 export const daysSvg = (W: number, r: Report, count: number): string => {
   const days = r.days.slice(-count)
-  const top = Math.max(...days.map(d => d.cost), 0.01)
+  // bar length = efficiency (dashed tick = 100, your typical day); the cost is the number on the right
+  const top = Math.max(...days.map(d => d.eff), 100) * 1.05
   const RH = 34
   const BX = 46
   const BW = W - BX - 64
+  const tick = BX + (100 / top) * BW
   const rows = days
     .map((d, i) => {
       const y = 26 + i * RH
-      const w = Math.max(d.cost > 0 ? 3 : 0, (d.cost / top) * BW)
+      const w = Math.max(d.eff > 0 ? 3 : 0, (d.eff / top) * BW)
       const col = barColor(d.eff, d.lines)
       const [, mo, da] = d.day.split('-')
       return `<text class="s" x="6" y="${y + 11}" font-size="11">${da}/${mo}</text>
 <rect class="k" x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/>
 <rect x="${BX}" y="${y}" width="${w}" height="13" rx="6.5" fill="${col}"/>
 <text class="t" x="${W - 6}" y="${y + 11}" font-size="12" font-weight="600" text-anchor="end">${usd(d.cost)}</text>
-<text class="m" x="${BX}" y="${y + 26}" font-size="10">${num(d.tok)} tok · ${dur(d.min)} · <tspan fill="${GREEN}">+${num(d.add)}</tspan> <tspan fill="${RED}">−${num(d.del)}</tspan> · eff ${Math.round(d.eff)}${d.agentShare > 0.05 ? ` · agents ${Math.round(d.agentShare * 100)}%` : ''}</text>`
+<text class="m" x="${BX}" y="${y + 26}" font-size="10">${num(d.tok)} tok · ${dur(d.min)} · <tspan fill="${GREEN}">+${num(d.add)}</tspan> <tspan fill="${RED}">−${num(d.del)}</tspan> · eff ${Math.round(d.eff)}${d.est ? ' (estimate)' : ''}${d.agentShare > 0.05 ? ` · agents ${Math.round(d.agentShare * 100)}%` : ''}</text>`
     })
     .join('')
   const leg = (x: number, c: string, t: string) => `<rect x="${x}" y="3" width="8" height="8" rx="2" fill="${c}"/><text class="s" x="${x + 12}" y="11" font-size="10">${t}</text>`
-  return svg(W, 30 + days.length * RH, `${leg(6, GREEN, 'above average')}${leg(W * 0.36, AMBER, 'below')}${leg(W * 0.56, '#8E929A', 'no commits')}${rows}`)
+  return svg(W, 30 + days.length * RH, `${leg(6, GREEN, 'above average')}${leg(W * 0.36, AMBER, 'below')}${leg(W * 0.56, '#8E929A', 'no commits')}${rows}<line class="ln" x1="${tick}" x2="${tick}" y1="22" y2="${30 + days.length * RH - 6}" stroke-width="1" stroke-dasharray="3 3"/>
+<text class="m" x="${tick}" y="19" font-size="9" text-anchor="middle">100</text>`)
 }
 
 export const rereadSvg = (W: number, r: Report): string => {
