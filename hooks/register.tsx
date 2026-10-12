@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { Report } from '../types'
-import { daysSvg, dur, headerSvg, moodOf, num, rereadSvg, usd, weekSvg } from './draw'
+import { agentsSvg, daysSvg, dur, headerSvg, moodOf, num, rereadSvg, usd, weekSvg } from './draw'
 
 const PANE = 'crab-ledger'
 const report = atom({ plugin: 'crab-ledger', key: 'report' } as const, null)
@@ -26,6 +26,7 @@ const statusText = (r: Report | null, frame: number) => {
 
 let busy = false
 let frame = 0
+let lastKey = ''
 let current: Report | null = null
 
 async function refresh($: any) {
@@ -35,9 +36,15 @@ async function refresh($: any) {
     const run = await $.process.run(['node', `${$.plugin.root}/hooks/aggregate.mjs`], { timeoutMs: 600000 })
     if (run.exitCode !== 0) throw new Error(run.stderr.slice(0, 200))
     current = JSON.parse(run.stdout) as Report
-    const stamp = new Date(current.at).toTimeString().slice(0, 5)
-    await update($, report, () => current)
-    await update($, note, () => `updated ${stamp}`)
+    // Redraw the pane only when the numbers changed: a new `at` alone is no reason to repaint.
+    const key = JSON.stringify([current.days, current.rereads, current.week, current.mix, current.tips])
+    if (key !== lastKey) {
+      lastKey = key
+      const stamp = new Date(current.at).toTimeString().slice(0, 5)
+      const fresh = current
+      await update($, report, () => fresh)
+      await update($, note, () => `updated ${stamp}`)
+    }
     $.ui.status(statusText(current, frame))
   } catch (err) {
     await update($, note, () => `error: ${String((err as Error).message ?? err).slice(0, 120)}`)
@@ -55,10 +62,6 @@ export const register: Register = on => {
     void $.ui.open({ id: PANE, title: 'Crab ledger' })
     void refresh($)
     $.clock.every(90_000, () => void refresh($))
-    $.clock.every(3_000, () => {
-      frame++
-      $.ui.status(statusText(current, frame))
-    })
 
     return next(e)
   })
@@ -137,6 +140,8 @@ export const register: Register = on => {
           {draw('week', weekSvg(W, r), `Last 7 days: ${usd(r.week.cost)}, ${num(r.week.tok)} tokens, ${dur(r.week.min)}`, 146)}
           <Text bold>Day by day</Text>
           {draw('days', daysSvg(W, r, count), 'Cost per day', 30 + Math.min(count, r.days.length) * 34)}
+          <Text bold>Agents by type and model <Text dimColor>(7 days)</Text></Text>
+          {r.agents.length === 0 ? <Text dimColor>none</Text> : draw('ag', agentsSvg(W, r), 'Agents by type and model', 24 + Math.min(7, r.agents.length) * 58)}
           <Text bold>Most re-read files <Text dimColor>(7 days, estimated cost)</Text></Text>
           {r.rereads.length === 0 ? <Text dimColor>none</Text> : draw('re', rereadSvg(W, r), 'Most re-read files', Math.max(20, Math.min(6, r.rereads.length) * 36 + 4))}
           {tips}
@@ -176,6 +181,16 @@ export const register: Register = on => {
               {num(d.tok)} tok · {dur(d.min)} · +{num(d.add)}/−{num(d.del)} · e{Math.round(d.eff)}
             </Text>
           </Box>
+        ))}
+        <Text> </Text>
+        <Text bold>Agents <Text dimColor>(7 days)</Text></Text>
+        {r.agents.slice(0, 6).map(a => (
+          <Text key={`${a.type}|${a.fam}`}>
+            <Text color="yellow">{usd(a.cost)}</Text> {a.type === 'main' ? 'main' : a.type}·{a.fam}{' '}
+            <Text dimColor>
+              {a.runs}× · {dur(a.min)} · +{num(a.lw)}/−{num(a.ld)} · {Math.round(a.cost > 0 ? a.lw / a.cost : 0)} l/$
+            </Text>
+          </Text>
         ))}
         <Text> </Text>
         <Text bold>Most re-read files</Text>

@@ -37,8 +37,7 @@ const CSS = `<style>
 .wave{transform-origin:0% 100%;animation:wv .6s ease-in-out infinite}@keyframes wv{50%{transform:rotate(-28deg)}}
 .tw{animation:bl 1s steps(1) infinite}.tw2{animation:bl 1s steps(1) infinite -.5s}@keyframes bl{50%{opacity:.1}}
 .drop{animation:dr 1.6s ease-in infinite}@keyframes dr{0%{transform:translateY(0);opacity:1}80%{transform:translateY(7px);opacity:.2}100%{transform:translateY(7px);opacity:0}}
-.grow{transform-origin:0 50%;animation:gw .7s ease-out both}@keyframes gw{from{transform:scaleX(0)}}
-@media (prefers-reduced-motion: reduce){.run .la,.run .lb,.run .bd,.wave,.tw,.tw2,.drop,.grow{animation:none!important}}
+@media (prefers-reduced-motion: reduce){.run .la,.run .lb,.run .bd,.wave,.tw,.tw2,.drop{animation:none!important}}
 </style>`
 
 const svg = (W: number, H: number, body: string) =>
@@ -172,7 +171,7 @@ export const daysSvg = (W: number, r: Report, count: number): string => {
       const [, mo, da] = d.day.split('-')
       return `<text class="s" x="6" y="${y + 11}" font-size="11">${da}/${mo}</text>
 <rect class="k" x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/>
-<rect class="grow" x="${BX}" y="${y}" width="${w}" height="13" rx="6.5" fill="${col}"/>
+<rect x="${BX}" y="${y}" width="${w}" height="13" rx="6.5" fill="${col}"/>
 <text class="t" x="${W - 6}" y="${y + 11}" font-size="12" font-weight="600" text-anchor="end">${usd(d.cost)}</text>
 <text class="m" x="${BX}" y="${y + 26}" font-size="10">${num(d.tok)} tok · ${dur(d.min)} · <tspan fill="${GREEN}">+${num(d.add)}</tspan> <tspan fill="${RED}">−${num(d.del)}</tspan> · eff ${Math.round(d.eff)}${d.agentShare > 0.05 ? ` · agents ${Math.round(d.agentShare * 100)}%` : ''}</text>`
     })
@@ -193,9 +192,39 @@ export const rereadSvg = (W: number, r: Report): string => {
       return `<text class="t" x="6" y="${y + 12}" font-size="12">${xml(name)}</text>
 <text x="${W - 6}" y="${y + 12}" font-size="12" font-weight="600" text-anchor="end" fill="${AMBER}">${usd(f.cost)}</text>
 <rect class="k" x="6" y="${y + 18}" width="${BW}" height="6" rx="3"/>
-<rect class="grow" x="6" y="${y + 18}" width="${Math.max(3, (f.cost / top) * BW)}" height="6" rx="3" fill="${AMBER}"/>
+<rect x="6" y="${y + 18}" width="${Math.max(3, (f.cost / top) * BW)}" height="6" rx="3" fill="${AMBER}"/>
 <text class="m" x="6" y="${y + 34}" font-size="10">${f.reads} reads · ${f.rereads} re-reads</text>`
     })
     .join('')
   return svg(W, Math.max(20, list.length * RH + 4), rows)
+}
+
+const FAM: Record<string, string> = { opus: CLAY, fable: '#9B7BD6', sonnet: BLUE, haiku: GREEN }
+
+export const agentsSvg = (W: number, r: Report): string => {
+  const list = r.agents.slice(0, 7)
+  const topCost = Math.max(...list.map(a => a.cost), 0.01)
+  const topMin = Math.max(...list.map(a => a.min), 0.01)
+  const RH = 58
+  const BW = W - 12
+  const rows = list
+    .map((a, i) => {
+      const y = 22 + i * RH
+      const col = FAM[a.fam] ?? '#8E929A'
+      const name = a.type === 'main' ? 'main session' : a.type
+      const label = fit(`${name} · ${a.fam}`, 12, BW - 60)
+      const perDollar = a.cost > 0 ? a.lw / a.cost : 0
+      const sub = `${a.runs} ${a.type === 'main' ? (a.runs === 1 ? 'session' : 'sessions') : a.runs === 1 ? 'run' : 'runs'} · ${dur(a.min)} · +${num(a.lw)}/−${num(a.ld)} lines · ${Math.round(perDollar)} lines/$ · ${usd(a.runs ? a.cost / a.runs : a.cost)}/run`
+      return `<circle cx="10" cy="${y + 6}" r="4" fill="${col}"/>
+<text class="t" x="20" y="${y + 10}" font-size="12" font-weight="600">${xml(label)}</text>
+<text x="${W - 6}" y="${y + 10}" font-size="12" font-weight="600" text-anchor="end" fill="${col}">${usd(a.cost)}</text>
+<rect class="k" x="6" y="${y + 17}" width="${BW}" height="8" rx="4"/>
+<rect x="6" y="${y + 17}" width="${Math.max(3, (a.cost / topCost) * BW)}" height="8" rx="4" fill="${col}"/>
+<rect class="k" x="6" y="${y + 28}" width="${BW}" height="5" rx="2.5"/>
+<rect x="6" y="${y + 28}" width="${Math.max(2, (a.min / topMin) * BW)}" height="5" rx="2.5" fill="#8E929A"/>
+<text class="m" x="6" y="${y + 47}" font-size="10">${xml(sub)}</text>`
+    })
+    .join('')
+  const head = `<text class="s" x="6" y="12" font-size="10">top bar = cost · thin bar = time worked</text>`
+  return svg(W, 24 + list.length * RH, `${head}${rows}`)
 }

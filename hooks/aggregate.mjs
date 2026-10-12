@@ -10,7 +10,7 @@ const ROOT = path.join(HOME, '.claude', 'projects')
 const CACHE = path.join(HOME, '.claude', 'crab-ledger-cache.json')
 const DAYS = 30
 const GAP = 5 * 60 * 1000
-const VER = 4
+const VER = 5
 
 // $ per million tokens: [input, output]. Cache write = 1.25x input, read = 0.1x input. Rough.
 const PRICES = [
@@ -53,6 +53,7 @@ function summarize(file, isAgent) {
   const sizes = new Map() // tool_use_id -> chars
   const stamps = []
   const cwds = new Set()
+  const tools = new Map() // tool_use id -> {ts, model, name, w, d}
   let turn = 0
   for (const line of lines) {
     if (!line || line[0] !== '{') continue
@@ -72,6 +73,15 @@ function summarize(file, isAgent) {
       })
       if (Array.isArray(m.content)) {
         for (const b of m.content) {
+          if (b.type === 'tool_use' && !tools.has(b.id)) {
+            const i = b.input || {}
+            const n = t => (typeof t === 'string' && t ? t.split('\n').length : 0)
+            let w = 0, d = 0
+            if (b.name === 'Write') w = n(i.content)
+            else if (b.name === 'Edit') { w = n(i.new_string); d = n(i.old_string) }
+            else if (b.name === 'MultiEdit' && Array.isArray(i.edits)) for (const e of i.edits) { w += n(e.new_string); d += n(e.old_string) }
+            tools.set(b.id, { ts, model: m.model, name: b.name, w, d, edit: w + d > 0 })
+          }
           if (b.type === 'tool_use' && b.name === 'Read' && b.input && b.input.file_path && !reads.some(x => x.id === b.id)) {
             reads.push({ id: b.id, path: String(b.input.file_path), ts, turn: msgs.get(id).turn, model: m.model })
           }
@@ -128,7 +138,48 @@ function summarize(file, isAgent) {
     o.n++
     if (n > 1) { o.r++; o.tok += tok; o.cost += cost }
   }
-  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds] }
+  // per agent type and model family, per day: what it spent, how long it worked, what it wrote
+  let type = 'main'
+  if (isAgent) {
+    type = 'agent'
+    try { type = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8')).agentType || 'agent' } catch {}
+    type = type.replace(/^.*:/, '')
+  }
+  const ag = {}
+  const bucket = (fam, day) => {
+    const k = `${type}|${fam}`
+    return ((ag[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0 })
+  }
+  const famCost = {}
+  let first = null
+  for (const x of msgs.values()) {
+    if (Number.isNaN(x.ts)) continue
+    const fm = famOf(x.model), day = dayOf(x.ts), c = costOf(x.model, x.u)
+    const b = bucket(fm, day)
+    b.cost += c; b.msgs++; b.out += x.u.out; b.tok += x.u.in + x.u.out + x.u.cw + x.u.cr
+    famCost[fm] = (famCost[fm] || 0) + c
+    if (!first || x.ts < first.ts) first = { ts: x.ts, fm, day }
+  }
+  for (const t of tools.values()) {
+    if (Number.isNaN(t.ts)) continue
+    const b = bucket(famOf(t.model), dayOf(t.ts))
+    b.tools++
+    if (t.edit) { b.edits++; b.lw += t.w; b.ld += t.d }
+  }
+  if (first) bucket(first.fm, first.day).runs++
+  const dom = Object.keys(famCost).sort((a, b) => famCost[b] - famCost[a])[0]
+  if (dom) {
+    for (const [a, z] of iv) {
+      let t0 = a
+      while (t0 < z) {
+        const end = new Date(t0); end.setHours(24, 0, 0, 0)
+        const e2 = Math.min(z, end.getTime())
+        bucket(dom, dayOf(t0)).ms += e2 - t0
+        t0 = e2
+      }
+    }
+  }
+  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds], ag }
 }
 
 let cache = { v: VER, files: {} }
@@ -161,6 +212,7 @@ try { fs.writeFileSync(CACHE, JSON.stringify(cache)) } catch {}
 const days = {}
 const dayRow = d => (days[d] ||= { day: d, in: 0, out: 0, cw: 0, cr: 0, cost: 0, add: 0, del: 0, iv: [], agentCost: 0, msgs: 0, c: { in: 0, out: 0, cw: 0, cr: 0 }, fam: {} })
 const cwds = new Set()
+const agents = {}
 const rereads = {}
 for (const { d } of Object.values(live)) {
   for (const [day, o] of Object.entries(d.byDay)) {
@@ -183,6 +235,12 @@ for (const { d } of Object.values(live)) {
     }
   }
   for (const c of d.cwds) cwds.add(c)
+  for (const [k, per] of Object.entries(d.ag || {})) {
+    for (const [day, o] of Object.entries(per)) {
+      const a = ((agents[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0 })
+      for (const f of Object.keys(a)) a[f] += o[f]
+    }
+  }
   for (const [p, per] of Object.entries(d.reads)) {
     for (const [day, o] of Object.entries(per)) {
       const x = (rereads[p] ||= { path: p, reads: 0, rereads: 0, cost: 0, tok: 0, byDay: {} })
@@ -294,6 +352,18 @@ for (const r of last7) {
 }
 const tot = mix.in + mix.out + mix.cw + mix.cr || 1
 const ctxAvg = mix.msgs ? mix.crTok / mix.msgs : 0
+const agentRows = []
+for (const [k, per] of Object.entries(agents)) {
+  const [type, fam] = k.split('|')
+  const row = { type, fam, runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, min: 0 }
+  for (const [day, o] of Object.entries(per)) {
+    if (!recent.has(day)) continue
+    for (const f of ['runs', 'cost', 'tok', 'out', 'msgs', 'tools', 'edits', 'lw', 'ld']) row[f] += o[f]
+    row.min += o.ms / 60000
+  }
+  if (row.msgs > 0) agentRows.push(row)
+}
+agentRows.sort((a, b) => b.cost - a.cost)
 const tips = []
 if (top[0] && rereadAll > 0.03 * tot) {
   const f = top[0]
@@ -317,6 +387,16 @@ if (mix.out / tot > 0.25) {
   tips.push({ kind: 'output', save: mix.out * 0.2, title: 'Shorter answers and thinking',
     why: `Output is ${Math.round((mix.out / tot) * 100)}% of the cost and each token weighs 5 times an input token. Lower effort on simple tasks and "diff only" instructions reduce it.` })
 }
+{
+  const fam = {}
+  for (const r of agentRows) if (r.type !== 'main') { const f = (fam[r.fam] ||= { cost: 0, lw: 0 }); f.cost += r.cost; f.lw += r.lw }
+  const rate = f => (fam[f] && fam[f].cost > 1 && fam[f].lw > 0 ? fam[f].lw / fam[f].cost : 0)
+  const ro = rate('opus'), rs = rate('sonnet')
+  if (ro > 0 && rs > 1.5 * ro) {
+    tips.push({ kind: 'agentyield', save: fam.opus.cost * 0.3 * 0.4, title: 'Sonnet subagents write more per dollar',
+      why: `Sonnet subagents wrote ${Math.round(rs)} lines per $ against ${Math.round(ro)} for Opus ones this week. Route mechanical edits and tests to them.` })
+  }
+}
 const idle = out.slice(-7).filter(x => x.cost > 0 && x.lines === 0)
 if (idle.length && sum(idle, x => x.cost) > 0.15 * (w.cost || 1)) {
   tips.push({ kind: 'idle', save: sum(idle, x => x.cost) * 0.3, title: 'Spend with no lines in git',
@@ -325,7 +405,7 @@ if (idle.length && sum(idle, x => x.cost) > 0.15 * (w.cost || 1)) {
 function usd(n) { return n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}` }
 tips.sort((a, b) => b.save - a.save)
 const mixOut = { in: mix.in, out: mix.out, cw: mix.cw, cr: mix.cr, agent: mix.agent, ctxAvg, fam: mix.fam, rereadAll }
-const final = JSON.stringify({ at: Date.now(), days: out, rereads: top, week, scanned, mix: mixOut, tips: tips.slice(0, 4) })
+const final = JSON.stringify({ at: Date.now(), days: out, rereads: top, week, scanned, mix: mixOut, tips: tips.slice(0, 4), agents: agentRows.slice(0, 10) })
 // other tools can read the last report from this file
 try { fs.writeFileSync(path.join(HOME, '.claude', 'crab-ledger-report.json'), final) } catch {}
 console.log(final)
