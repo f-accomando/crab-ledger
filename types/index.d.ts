@@ -10,7 +10,7 @@ export type Day = {
   eff: number
   agentShare: number
 }
-export type AgentRow = { type: string; fam: string; runs: number; cost: number; tok: number; out: number; msgs: number; tools: number; edits: number; lw: number; ld: number; min: number }
+export type AgentRow = { type: string; fam: string; runs: number; cost: number; tok: number; out: number; msgs: number; tools: number; edits: number; lw: number; ld: number; min: number; act: Record<'think' | 'read' | 'write' | 'run' | 'input' | 'wait', number>; repMin: number }
 export type Reread = { path: string; reads: number; rereads: number; cost: number; tok: number }
 export type Report = {
   at: number
@@ -20,6 +20,7 @@ export type Report = {
   scanned: number
   mix: { in: number; out: number; cw: number; cr: number; agent: number; ctxAvg: number; fam: Record<string, number>; rereadAll: number }
   agents: AgentRow[]
+  repeated: { key: string; n: number; min: number; files: number }[]
   tips: { kind: string; save: number; title: string; why: string }[]
 }
 

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { Report } from '../types'
-import { agentsSvg, daysSvg, dur, headerSvg, moodOf, num, rereadSvg, usd, weekSvg } from './draw'
+import { agentsHeight, agentsSvg, daysSvg, dur, headerSvg, moodOf, num, repeatedSvg, rereadSvg, usd, weekSvg } from './draw'
 
 const PANE = 'crab-ledger'
 const report = atom({ plugin: 'crab-ledger', key: 'report' } as const, null)
@@ -141,7 +141,9 @@ export const register: Register = on => {
           <Text bold>Day by day</Text>
           {draw('days', daysSvg(W, r, count), 'Cost per day', 30 + Math.min(count, r.days.length) * 34)}
           <Text bold>Agents by type and model <Text dimColor>(7 days)</Text></Text>
-          {r.agents.length === 0 ? <Text dimColor>none</Text> : draw('ag', agentsSvg(W, r), 'Agents by type and model', 24 + Math.min(7, r.agents.length) * 58)}
+          {r.agents.length === 0 ? <Text dimColor>none</Text> : draw('ag', agentsSvg(W, r), 'Agents by type and model', agentsHeight(r.agents.length))}
+          <Text bold>Repeated tasks <Text dimColor>(3+ times in 7 days, time waited)</Text></Text>
+          {r.repeated.length === 0 ? <Text dimColor>none</Text> : draw('rt', repeatedSvg(W, r), 'Repeated tasks', Math.max(20, Math.min(5, r.repeated.length) * 34 + 4))}
           <Text bold>Most re-read files <Text dimColor>(7 days, estimated cost)</Text></Text>
           {r.rereads.length === 0 ? <Text dimColor>none</Text> : draw('re', rereadSvg(W, r), 'Most re-read files', Math.max(20, Math.min(6, r.rereads.length) * 36 + 4))}
           {tips}
@@ -188,7 +190,7 @@ export const register: Register = on => {
           <Text key={`${a.type}|${a.fam}`}>
             <Text color="yellow">{usd(a.cost)}</Text> {a.type === 'main' ? 'main' : a.type}·{a.fam}{' '}
             <Text dimColor>
-              {a.runs}× · {dur(a.min)} · +{num(a.lw)}/−{num(a.ld)} · {Math.round(a.cost > 0 ? a.lw / a.cost : 0)} l/$
+              {a.runs}× · {dur(a.min)} · +{num(a.lw)}/−{num(a.ld)} · {Math.round(a.cost > 0 ? a.lw / a.cost : 0)} l/$ · ↻ {Math.round(a.min > 0 ? (a.repMin / a.min) * 100 : 0)}%
             </Text>
           </Text>
         ))}

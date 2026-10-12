@@ -10,7 +10,7 @@ const ROOT = path.join(HOME, '.claude', 'projects')
 const CACHE = path.join(HOME, '.claude', 'crab-ledger-cache.json')
 const DAYS = 30
 const GAP = 5 * 60 * 1000
-const VER = 5
+const VER = 7
 
 // $ per million tokens: [input, output]. Cache write = 1.25x input, read = 0.1x input. Rough.
 const PRICES = [
@@ -31,6 +31,23 @@ const comps = (m, u) => {
   return { in: (u.in * pi) / 1e6, out: (u.out * po) / 1e6, cw: (u.cw * pi * 1.25) / 1e6, cr: (u.cr * pi * 0.1) / 1e6 }
 }
 const famOf = m => (/opus/.test(m || '') ? 'opus' : /sonnet/.test(m || '') ? 'sonnet' : /haiku/.test(m || '') ? 'haiku' : /fable/.test(m || '') ? 'fable' : 'other')
+const relPath = p => String(p).replaceAll('\\', '/').replace(/^(.*\/GitHub\/[^/]+\/)\.claude\/worktrees\/[^/]+\//, '$1').replace(/^.*\/GitHub\//, '')
+const normCmd = c => c.replace(/"[^"]*"|'[^']*'/g, '""').replace(/[A-Za-z]:[\\/]\S*|\/\S+/g, '<p>').replace(/\b[0-9a-f]{7,}\b/g, '<h>').replace(/\d+/g, 'N').replace(/\s+/g, ' ').trim()
+// what counts as "the same task" when a tool call comes back: only things worth repeating (not each Edit)
+const keyOf = b => {
+  const i = b.input || {}
+  if (b.name === 'Read' && i.file_path) return `Read ${relPath(i.file_path)}`
+  if (b.name === 'Bash' || b.name === 'PowerShell') {
+    const c = normCmd(String(i.command || '').split('\n')[0].replace(/^\s*cd\s+\S+\s*(&&|;)\s*/, ''))
+    return c ? `${b.name} ${c.split(' ').slice(0, 3).join(' ')}` : null
+  }
+  if (b.name === 'Grep' && i.pattern) return `Grep ${String(i.pattern).slice(0, 40)}`
+  if (b.name === 'Glob' && i.pattern) return `Glob ${String(i.pattern).slice(0, 40)}`
+  if (b.name === 'Agent' || b.name === 'Task') return `Agent ${i.subagent_type || ''}: ${String(i.description || '').toLowerCase().split(/\s+/).slice(0, 5).join(' ')}`
+  return null
+}
+const CAT = { Read: 'read', Grep: 'read', Glob: 'read', LS: 'read', WebFetch: 'read', WebSearch: 'read', ToolSearch: 'read', Edit: 'write', Write: 'write', MultiEdit: 'write', NotebookEdit: 'write', Bash: 'run', PowerShell: 'run', Monitor: 'run' }
+const ZERO_ACT = () => ({ think: 0, read: 0, write: 0, run: 0, input: 0, wait: 0 })
 const dayOf = ms => {
   const d = new Date(ms)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -54,13 +71,35 @@ function summarize(file, isAgent) {
   const stamps = []
   const cwds = new Set()
   const tools = new Map() // tool_use id -> {ts, model, name, w, d}
+  const actByDay = {}
+  const rk = {}
+  let prevTs = null
   let turn = 0
   for (const line of lines) {
     if (!line || line[0] !== '{') continue
     let r
     try { r = JSON.parse(line) } catch { continue }
     const ts = r.timestamp ? Date.parse(r.timestamp) : NaN
-    if (!Number.isNaN(ts)) stamps.push(ts)
+    if (!Number.isNaN(ts)) {
+      stamps.push(ts)
+      // the time since the record before: who was working?
+      if (prevTs !== null && ts - prevTs > 0 && ts - prevTs <= GAP) {
+        let cat = 'wait', hit = null
+        if (r.type === 'assistant') cat = 'think'
+        else if (r.type === 'user' && r.message) {
+          const c = r.message.content
+          if (typeof c === 'string') cat = 'input'
+          else if (Array.isArray(c)) {
+            const tr = c.find(x => x.type === 'tool_result')
+            if (tr) { hit = tools.get(tr.tool_use_id); cat = (hit && CAT[hit.name]) || 'wait' } else cat = 'input'
+          }
+        }
+        const d0 = dayOf(ts)
+        ;(actByDay[d0] ||= ZERO_ACT())[cat] += ts - prevTs
+        if (hit && hit.key && !/^Agent/.test(hit.key)) ((rk[hit.key] ||= {})[d0] ||= { n: 0, ms: 0 }).ms += ts - prevTs
+      }
+      prevTs = ts
+    }
     if (r.cwd) cwds.add(r.cwd)
     const m = r.message
     if (r.type === 'assistant' && m && m.usage) {
@@ -80,7 +119,9 @@ function summarize(file, isAgent) {
             if (b.name === 'Write') w = n(i.content)
             else if (b.name === 'Edit') { w = n(i.new_string); d = n(i.old_string) }
             else if (b.name === 'MultiEdit' && Array.isArray(i.edits)) for (const e of i.edits) { w += n(e.new_string); d += n(e.old_string) }
-            tools.set(b.id, { ts, model: m.model, name: b.name, w, d, edit: w + d > 0 })
+            const key = keyOf(b)
+            tools.set(b.id, { ts, model: m.model, name: b.name, w, d, edit: w + d > 0, key })
+            if (key && !Number.isNaN(ts)) ((rk[key] ||= {})[dayOf(ts)] ||= { n: 0, ms: 0 }).n++
           }
           if (b.type === 'tool_use' && b.name === 'Read' && b.input && b.input.file_path && !reads.some(x => x.id === b.id)) {
             reads.push({ id: b.id, path: String(b.input.file_path), ts, turn: msgs.get(id).turn, model: m.model })
@@ -148,7 +189,7 @@ function summarize(file, isAgent) {
   const ag = {}
   const bucket = (fam, day) => {
     const k = `${type}|${fam}`
-    return ((ag[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0 })
+    return ((ag[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0, ...ZERO_ACT() })
   }
   const famCost = {}
   let first = null
@@ -179,7 +220,13 @@ function summarize(file, isAgent) {
       }
     }
   }
-  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds], ag }
+  if (dom) for (const [day, a] of Object.entries(actByDay)) for (const c of Object.keys(a)) bucket(dom, day)[c] += a[c]
+  const rkTop = Object.fromEntries(
+    Object.entries(rk)
+      .map(([k, per]) => [k, per, Object.values(per).reduce((t, o) => t + o.ms + o.n * 1000, 0)])
+      .sort((a, b) => b[2] - a[2]).slice(0, 150).map(([k, per]) => [k, per]),
+  )
+  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds], ag, rk: rkTop, rkb: dom ? `${type}|${dom}` : null }
 }
 
 let cache = { v: VER, files: {} }
@@ -213,6 +260,8 @@ const days = {}
 const dayRow = d => (days[d] ||= { day: d, in: 0, out: 0, cw: 0, cr: 0, cost: 0, add: 0, del: 0, iv: [], agentCost: 0, msgs: 0, c: { in: 0, out: 0, cw: 0, cr: 0 }, fam: {} })
 const cwds = new Set()
 const agents = {}
+const repAll = {} // key -> {byDay, files}
+const repBy = {} // bucket -> key -> {day -> {n, ms}}
 const rereads = {}
 for (const { d } of Object.values(live)) {
   for (const [day, o] of Object.entries(d.byDay)) {
@@ -235,9 +284,21 @@ for (const { d } of Object.values(live)) {
     }
   }
   for (const c of d.cwds) cwds.add(c)
+  for (const [key, per] of Object.entries(d.rk || {})) {
+    const g = (repAll[key] ||= { byDay: {}, files: 0 })
+    g.files++
+    for (const [day, o] of Object.entries(per)) {
+      const x = (g.byDay[day] ||= { n: 0, ms: 0 })
+      x.n += o.n; x.ms += o.ms
+      if (d.rkb) {
+        const y = (((repBy[d.rkb] ||= {})[key] ||= {})[day] ||= { n: 0, ms: 0 })
+        y.n += o.n; y.ms += o.ms
+      }
+    }
+  }
   for (const [k, per] of Object.entries(d.ag || {})) {
     for (const [day, o] of Object.entries(per)) {
-      const a = ((agents[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0 })
+      const a = ((agents[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0, ...ZERO_ACT() })
       for (const f of Object.keys(a)) a[f] += o[f]
     }
   }
@@ -352,14 +413,26 @@ for (const r of last7) {
 }
 const tot = mix.in + mix.out + mix.cw + mix.cr || 1
 const ctxAvg = mix.msgs ? mix.crTok / mix.msgs : 0
+const rep7 = {}
+for (const [key, g] of Object.entries(repAll)) {
+  let n = 0, ms = 0
+  for (const [day, o] of Object.entries(g.byDay)) if (recent.has(day)) { n += o.n; ms += o.ms }
+  if (n >= 3) rep7[key] = { key, n, ms, files: g.files }
+}
+const repeated = Object.values(rep7).sort((a, b) => b.ms - a.ms || b.n - a.n).slice(0, 8).map(x => ({ key: x.key, n: x.n, min: x.ms / 60000, files: x.files }))
 const agentRows = []
 for (const [k, per] of Object.entries(agents)) {
   const [type, fam] = k.split('|')
-  const row = { type, fam, runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, min: 0 }
+  const row = { type, fam, runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, min: 0, act: ZERO_ACT(), repMin: 0 }
   for (const [day, o] of Object.entries(per)) {
     if (!recent.has(day)) continue
     for (const f of ['runs', 'cost', 'tok', 'out', 'msgs', 'tools', 'edits', 'lw', 'ld']) row[f] += o[f]
     row.min += o.ms / 60000
+    for (const c of Object.keys(row.act)) row.act[c] += o[c] / 60000
+  }
+  for (const [key, per] of Object.entries(repBy[k] || {})) {
+    if (!rep7[key]) continue
+    for (const [day, o] of Object.entries(per)) if (recent.has(day)) row.repMin += o.ms / 60000
   }
   if (row.msgs > 0) agentRows.push(row)
 }
@@ -397,6 +470,15 @@ if (mix.out / tot > 0.25) {
       why: `Sonnet subagents wrote ${Math.round(rs)} lines per $ against ${Math.round(ro)} for Opus ones this week. Route mechanical edits and tests to them.` })
   }
 }
+{
+  const r = repeated.find(x => !x.key.startsWith('Read ') && x.min >= 2)
+  if (r) {
+    const share = r.min / (w.min || 1)
+    const [tool, ...rest] = r.key.split(' ')
+    tips.push({ kind: 'repeat', save: share * w.cost * 0.5, title: `Repeated task: ${tool === 'Agent' ? 'subagent' : tool} ${rest.join(' ').trim()}`.slice(0, 70),
+      why: `${r.n} times in 7 days across ${r.files} sessions, ${Math.round(r.min)} min of waiting. Turn it into a script or a skill, narrow it to what changed, or reuse the result instead of running it again.` })
+  }
+}
 const idle = out.slice(-7).filter(x => x.cost > 0 && x.lines === 0)
 if (idle.length && sum(idle, x => x.cost) > 0.15 * (w.cost || 1)) {
   tips.push({ kind: 'idle', save: sum(idle, x => x.cost) * 0.3, title: 'Spend with no lines in git',
@@ -405,7 +487,7 @@ if (idle.length && sum(idle, x => x.cost) > 0.15 * (w.cost || 1)) {
 function usd(n) { return n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}` }
 tips.sort((a, b) => b.save - a.save)
 const mixOut = { in: mix.in, out: mix.out, cw: mix.cw, cr: mix.cr, agent: mix.agent, ctxAvg, fam: mix.fam, rereadAll }
-const final = JSON.stringify({ at: Date.now(), days: out, rereads: top, week, scanned, mix: mixOut, tips: tips.slice(0, 4), agents: agentRows.slice(0, 10) })
+const final = JSON.stringify({ at: Date.now(), days: out, rereads: top, week, scanned, mix: mixOut, tips: tips.slice(0, 4), agents: agentRows.slice(0, 10), repeated })
 // other tools can read the last report from this file
 try { fs.writeFileSync(path.join(HOME, '.claude', 'crab-ledger-report.json'), final) } catch {}
 console.log(final)

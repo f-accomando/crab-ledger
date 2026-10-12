@@ -201,30 +201,80 @@ export const rereadSvg = (W: number, r: Report): string => {
 
 const FAM: Record<string, string> = { opus: CLAY, fable: '#9B7BD6', sonnet: BLUE, haiku: GREEN }
 
+export const ACT: [string, string, string][] = [
+  ['think', 'model', '#A78BFA'],
+  ['read', 'read', '#38BDF8'],
+  ['write', 'write', '#34D399'],
+  ['run', 'run', '#FBBF24'],
+  ['input', 'input', '#94A3B8'],
+  ['wait', 'wait', '#CBD5E1'],
+]
+
+export const AGENT_RH = 76
+export const agentsHeight = (n: number) => 40 + Math.min(7, n) * AGENT_RH
+
 export const agentsSvg = (W: number, r: Report): string => {
   const list = r.agents.slice(0, 7)
   const topCost = Math.max(...list.map(a => a.cost), 0.01)
   const topMin = Math.max(...list.map(a => a.min), 0.01)
-  const RH = 58
+  const RH = AGENT_RH
   const BW = W - 12
   const rows = list
     .map((a, i) => {
-      const y = 22 + i * RH
+      const y = 40 + i * RH
       const col = FAM[a.fam] ?? '#8E929A'
       const name = a.type === 'main' ? 'main session' : a.type
       const label = fit(`${name} · ${a.fam}`, 12, BW - 60)
       const perDollar = a.cost > 0 ? a.lw / a.cost : 0
-      const sub = `${a.runs} ${a.type === 'main' ? (a.runs === 1 ? 'session' : 'sessions') : a.runs === 1 ? 'run' : 'runs'} · ${dur(a.min)} · +${num(a.lw)}/−${num(a.ld)} lines · ${Math.round(perDollar)} lines/$ · ${usd(a.runs ? a.cost / a.runs : a.cost)}/run`
+      const unit = a.type === 'main' ? (a.runs === 1 ? 'session' : 'sessions') : a.runs === 1 ? 'run' : 'runs'
+      const rep = a.min > 0 && a.repMin > 0 ? ` · ↻ ${Math.round((a.repMin / a.min) * 100)}% repeated` : ''
+      const sub1 = `${a.runs} ${unit} · ${dur(a.min)} worked${rep}`
+      const sub2 = `+${num(a.lw)}/−${num(a.ld)} lines · ${Math.round(perDollar)} lines/$ · ${usd(a.runs ? a.cost / a.runs : a.cost)}/run`
+      const total = ACT.reduce((t, [k]) => t + (a.act[k as keyof typeof a.act] || 0), 0) || 1
+      const full = Math.max(2, (a.min / topMin) * BW)
+      let x = 6
+      const segs = ACT.map(([k, , c]) => {
+        const w = ((a.act[k as keyof typeof a.act] || 0) / total) * full
+        const s = w > 0.3 ? `<rect x="${x}" y="${y + 28}" width="${w}" height="7" fill="${c}"/>` : ''
+        x += w
+        return s
+      }).join('')
       return `<circle cx="10" cy="${y + 6}" r="4" fill="${col}"/>
 <text class="t" x="20" y="${y + 10}" font-size="12" font-weight="600">${xml(label)}</text>
 <text x="${W - 6}" y="${y + 10}" font-size="12" font-weight="600" text-anchor="end" fill="${col}">${usd(a.cost)}</text>
 <rect class="k" x="6" y="${y + 17}" width="${BW}" height="8" rx="4"/>
 <rect x="6" y="${y + 17}" width="${Math.max(3, (a.cost / topCost) * BW)}" height="8" rx="4" fill="${col}"/>
-<rect class="k" x="6" y="${y + 28}" width="${BW}" height="5" rx="2.5"/>
-<rect x="6" y="${y + 28}" width="${Math.max(2, (a.min / topMin) * BW)}" height="5" rx="2.5" fill="#8E929A"/>
-<text class="m" x="6" y="${y + 47}" font-size="10">${xml(sub)}</text>`
+<rect class="k" x="6" y="${y + 28}" width="${BW}" height="7" rx="3.5"/>
+<clipPath id="c${i}"><rect x="6" y="${y + 28}" width="${full}" height="7" rx="3.5"/></clipPath><g clip-path="url(#c${i})">${segs}</g>
+<rect x="6" y="${y + 38}" width="${Math.max(0, (a.repMin / topMin) * BW)}" height="2" rx="1" fill="${RED}"/>
+<text class="m" x="6" y="${y + 53}" font-size="10">${xml(sub1)}</text>
+<text class="m" x="6" y="${y + 66}" font-size="10">${xml(sub2)}</text>`
     })
     .join('')
-  const head = `<text class="s" x="6" y="12" font-size="10">top bar = cost · thin bar = time worked</text>`
-  return svg(W, 24 + list.length * RH, `${head}${rows}`)
+  const legend = ACT.map(([, label, c], i) => {
+    const lx = 6 + i * (BW / 6)
+    return `<rect x="${lx}" y="19" width="7" height="7" rx="2" fill="${c}"/><text class="s" x="${lx + 10}" y="26" font-size="9.5">${label}</text>`
+  }).join('')
+  const head = `<text class="s" x="6" y="11" font-size="10">top bar = cost · bar below = time by activity · red = repeated tasks</text>${legend}`
+  return svg(W, agentsHeight(list.length), `${head}${rows}`)
+}
+
+export const repeatedSvg = (W: number, r: Report): string => {
+  const list = r.repeated.slice(0, 5)
+  const top = Math.max(...list.map(x => x.min), 0.01)
+  const RH = 34
+  const BW = W - 12
+  const rows = list
+    .map((x, i) => {
+      const y = 2 + i * RH
+      const [tool, ...rest] = x.key.split(' ')
+      const label = fit(`${tool === 'Agent' ? 'subagent' : tool} ${rest.join(' ')}`, 12, BW - 56)
+      return `<text class="t" x="6" y="${y + 11}" font-size="12">${xml(label)}</text>
+<text x="${W - 6}" y="${y + 11}" font-size="12" font-weight="600" text-anchor="end" fill="${RED}">${dur(x.min)}</text>
+<rect class="k" x="6" y="${y + 17}" width="${BW}" height="5" rx="2.5"/>
+<rect x="6" y="${y + 17}" width="${Math.max(3, (x.min / top) * BW)}" height="5" rx="2.5" fill="${RED}"/>
+<text class="m" x="6" y="${y + 32}" font-size="10">${x.n} times · ${x.files} sessions</text>`
+    })
+    .join('')
+  return svg(W, Math.max(20, list.length * RH + 4), rows)
 }
