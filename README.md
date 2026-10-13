@@ -60,3 +60,7 @@ or set `CLAUDE_CODE_PLUGIN_DIRS` to that path.
 
 `claude plugin validate .` and `claude plugin test .` from the repository folder. The pane is in
 `hooks/register.tsx`, the SVG drawing in `hooks/draw.ts`, the log scan in `hooks/aggregate.mjs`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
