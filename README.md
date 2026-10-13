@@ -17,7 +17,9 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
   no commits; tokens, minutes, git lines and the share spent by subagents.
 - **Most re-read files**: reads, re-reads and estimated cost over 7 days.
 - **What to optimize**: up to four tips with the estimated weekly saving and the reason (long
-  contexts, expensive models for small tasks, cache invalidation, long outputs, re-reads).
+  contexts, expensive models for small tasks, cache invalidation, long outputs, re-reads, big
+  files read whole, `deep` agents started without a scout, subagents that stop BLOCKED or
+  FAILED, an oversized `CLAUDE.md`).
 - **Status line**: a small crab with the trend, today's cost and time, and the 7-day cost.
 
 Open it with `/ledger`. On the desktop app it draws SVG graphics; in a terminal it falls back

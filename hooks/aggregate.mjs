@@ -10,7 +10,7 @@ const ROOT = path.join(HOME, '.claude', 'projects')
 const CACHE = path.join(HOME, '.claude', 'crab-ledger-cache.json')
 const DAYS = 30
 const GAP = 5 * 60 * 1000
-const VER = 7
+const VER = 8
 
 // $ per million tokens: [input, output]. Cache write = 1.25x input, read = 0.1x input. Rough.
 const PRICES = [
@@ -73,6 +73,10 @@ function summarize(file, isAgent) {
   const tools = new Map() // tool_use id -> {ts, model, name, w, d}
   const actByDay = {}
   const rk = {}
+  const whole = [] // Read calls with no offset/limit: {id, ts, turn, model}
+  const stat = {} // day -> {BLOCKED, FAILED, REJECTED}: how subagents closed
+  const deepNo = {} // day -> deep launched with no earlier Explore/planner/light/research in the session
+  let sawHelper = false
   let prevTs = null
   let turn = 0
   for (const line of lines) {
@@ -125,6 +129,12 @@ function summarize(file, isAgent) {
           }
           if (b.type === 'tool_use' && b.name === 'Read' && b.input && b.input.file_path && !reads.some(x => x.id === b.id)) {
             reads.push({ id: b.id, path: String(b.input.file_path), ts, turn: msgs.get(id).turn, model: m.model })
+            if (b.input.offset == null && b.input.limit == null && !/\.(png|jpe?g|gif|webp|pdf|ipynb)$/i.test(String(b.input.file_path))) whole.push({ id: b.id, ts, turn: msgs.get(id).turn, model: m.model })
+          }
+          if (b.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task') && !Number.isNaN(ts) && !isAgent) {
+            const st = String((b.input || {}).subagent_type || '').replace(/^.*:/, '')
+            if (st === 'deep' && !sawHelper) { const d1 = dayOf(ts); deepNo[d1] = (deepNo[d1] || 0) + 1 }
+            if (st !== 'deep') sawHelper = true
           }
         }
       }
@@ -134,6 +144,12 @@ function summarize(file, isAgent) {
           const c = b.content
           const n = typeof c === 'string' ? c.length : Array.isArray(c) ? c.reduce((a, x) => a + (x.text ? x.text.length : 0), 0) : 0
           sizes.set(b.tool_use_id, n)
+          const t = tools.get(b.tool_use_id)
+          if (t && (t.name === 'Agent' || t.name === 'Task') && !Number.isNaN(t.ts)) {
+            const txt = typeof c === 'string' ? c : Array.isArray(c) ? c.map(x => x.text || '').join('\n') : ''
+            const mm = /(?:^|\n)\s*\**(BLOCKED|FAILED x2|REJECTED)/.exec(txt.slice(0, 600))
+            if (mm) { const o = (stat[dayOf(t.ts)] ||= { BLOCKED: 0, FAILED: 0, REJECTED: 0 }); o[mm[1].split(' ')[0]]++ }
+          }
         }
       }
     }
@@ -178,6 +194,17 @@ function summarize(file, isAgent) {
     const o = ((rr[k] ||= {})[d] ||= { n: 0, r: 0, tok: 0, cost: 0 })
     o.n++
     if (n > 1) { o.r++; o.tok += tok; o.cost += cost }
+  }
+  // whole reads of big files (over ~8k tokens): same pricing as rereads
+  const wh = {}
+  for (const r of whole) {
+    const chars = sizes.get(r.id) || 0
+    if (chars < 28000 || Number.isNaN(r.ts)) continue
+    const tok = chars / 3.5
+    const [pi] = price(r.model)
+    const o = ((wh[dayOf(r.ts)] ||= { n: 0, tok: 0, cost: 0 }))
+    o.n++; o.tok += tok
+    o.cost += (tok * pi * 1.25 + tok * pi * 0.1 * Math.max(0, total - r.turn)) / 1e6
   }
   // per agent type and model family, per day: what it spent, how long it worked, what it wrote
   let type = 'main'
@@ -226,7 +253,7 @@ function summarize(file, isAgent) {
       .map(([k, per]) => [k, per, Object.values(per).reduce((t, o) => t + o.ms + o.n * 1000, 0)])
       .sort((a, b) => b[2] - a[2]).slice(0, 150).map(([k, per]) => [k, per]),
   )
-  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds], ag, rk: rkTop, rkb: dom ? `${type}|${dom}` : null }
+  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds], ag, rk: rkTop, rkb: dom ? `${type}|${dom}` : null, wh, stat, deepNo }
 }
 
 let cache = { v: VER, files: {} }
@@ -263,7 +290,19 @@ const agents = {}
 const repAll = {} // key -> {byDay, files}
 const repBy = {} // bucket -> key -> {day -> {n, ms}}
 const rereads = {}
+const wholeAll = {} // day -> {n, tok, cost}
+const statAll = {} // day -> {BLOCKED, FAILED, REJECTED}
+const deepNoAll = {} // day -> n
 for (const { d } of Object.values(live)) {
+  for (const [day, o] of Object.entries(d.wh || {})) {
+    const x = (wholeAll[day] ||= { n: 0, tok: 0, cost: 0 })
+    x.n += o.n; x.tok += o.tok; x.cost += o.cost
+  }
+  for (const [day, o] of Object.entries(d.stat || {})) {
+    const x = (statAll[day] ||= { BLOCKED: 0, FAILED: 0, REJECTED: 0 })
+    for (const k of Object.keys(x)) x[k] += o[k] || 0
+  }
+  for (const [day, n] of Object.entries(d.deepNo || {})) deepNoAll[day] = (deepNoAll[day] || 0) + n
   for (const [day, o] of Object.entries(d.byDay)) {
     const r = dayRow(day)
     r.in += o.in; r.out += o.out; r.cw += o.cw; r.cr += o.cr; r.cost += o.cost
@@ -515,6 +554,57 @@ const idle = out.slice(-7).filter(x => x.cost > 0 && x.lines === 0)
 if (idle.length && sum(idle, x => x.cost) > 0.15 * (w.cost || 1)) {
   tips.push({ kind: 'idle', save: sum(idle, x => x.cost) * 0.3, title: 'Spend with no lines in git',
     why: `${idle.length} days with spend and no commit (${usd(sum(idle, x => x.cost))}). Fine if it was research; if it was trial and error, a written plan first or an Explore subagent costs less.` })
+}
+// Rules from the scaffolding guide (docs/scaffold.pdf) that the transcripts can actually show
+{
+  // R5 surgical reads: big files read whole
+  let n = 0, tok = 0, cost = 0
+  for (const d of recent) { const x = wholeAll[d]; if (x) { n += x.n; tok += x.tok; cost += x.cost } }
+  if (n >= 3 && cost > 0.02 * (w.cost || 1)) {
+    tips.push({ kind: 'wholeread', save: cost * 0.7, title: `${n} big files read whole`,
+      why: `${n} Reads of files over ~8k tokens with no offset/limit (~${Math.round(tok / 1000)}k tokens) in 7 days. Grep -n for the symbol or '^#' first, then Read only that stretch; a file you will not edit does not need to be in the context at all.` })
+  }
+}
+{
+  // R6 route by readiness: deep with no scouting first
+  let n = 0
+  for (const d of recent) n += deepNoAll[d] || 0
+  const dp = agentRows.filter(r => r.type === 'deep')
+  const dCost = sum(dp, r => r.cost)
+  if (n >= 2 && dCost > 0) {
+    tips.push({ kind: 'deepgate', save: dCost * (n / Math.max(n, sum(dp, r => r.runs))) * 0.4, title: 'Deep without a scout first',
+      why: `${n} deep runs started in a session with no Explore, planner or light agent before them. Deep should get a symptom, an exact repro, the suspect file and what was already tried: let a cheap agent find those first, otherwise deep spends xhigh tokens exploring.` })
+  }
+}
+{
+  // R7/R14 statuses: agents that stop short
+  let b = 0, f = 0, rj = 0
+  for (const d of recent) { const x = statAll[d]; if (x) { b += x.BLOCKED; f += x.FAILED; rj += x.REJECTED } }
+  const bad = b + f + rj
+  if (bad >= 3) {
+    const sub = agentRows.filter(r => r.type !== 'main')
+    const perRun = sum(sub, r => r.cost) / Math.max(1, sum(sub, r => r.runs))
+    tips.push({ kind: 'stalls', save: bad * perRun * 0.5, title: `${bad} subagent runs stopped short`,
+      why: `${b} BLOCKED, ${f} FAILED x2, ${rj} REJECTED in 7 days. Many BLOCKED: the brief left a decision open, so name files, symbols and the check command first. Many FAILED x2 at one tier: raise the tier or split the task into smaller steps.` })
+  }
+}
+{
+  // R2 thin root: CLAUDE.md is paid for on every turn
+  let worst = null
+  for (const c of repos.values()) {
+    try {
+      const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: c, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      const txt = fs.readFileSync(path.join(top, 'CLAUDE.md'), 'utf8')
+      const lines = txt.split('\n').length
+      if (!worst || lines > worst.lines) worst = { lines, tok: Buffer.byteLength(txt) / 4, name: path.basename(top) }
+    } catch {}
+  }
+  if (worst && worst.lines > 80) {
+    const keep = Math.min(worst.tok, (worst.tok * 60) / worst.lines)
+    // 0.3e-6 $/token: about the cache-read price of a Sonnet-class input token
+    tips.push({ kind: 'thinroot', save: (worst.tok - keep) * mix.msgs * 0.3e-6, title: `Trim CLAUDE.md (${worst.lines} lines in ${worst.name})`,
+      why: `About ${Math.round(worst.tok / 1000)}k tokens ride along on every one of ${mix.msgs} turns this week. Aim for ~60 lines: keep invariants and routing, move per-area rules to docs/progress/<area>.md and leave one line pointing there.` })
+  }
 }
 function usd(n) { return n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}` }
 tips.sort((a, b) => b.save - a.save)

@@ -2,5 +2,5 @@
   "name": "crab-ledger",
   "description": "A Claude Code side pane for tokens, time, git lines, cost and efficiency.",
   "owner": { "name": "Francesco Accomando" },
-  "plugins": [{ "name": "crab-ledger", "source": "./" }]
+  "plugins": [{ "name": "crab-ledger", "source": "./", "description": "A Claude Code side pane for tokens, time, git lines, cost and efficiency.", "author": { "name": "Francesco Accomando" } }]
 }
