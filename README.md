@@ -14,6 +14,12 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
   the number wildly); until then it shows a dash. Documents and media (PDF, images...) are not counted as lines. The crab raises a claw when it improves and sweats when it worsens.
 - **Last 7 days** (a proxy for the weekly allowance): cost, tokens, active time, lines, and a bar
   that splits the cost into cache read, cache write, output and input.
+- **Subagents** (live, between Last 7 days and Day by day): one card per subagent of the session,
+  with a pixel crab in the costume of its role (planner, coder, research, mechanic, light, deep) and
+  the color of its model. The big bar is task progress and the estimate of the time left, measured against a typical run
+  of the same type and model (your last 7 days); the thin bar is efficiency (cost and time against that typical run,
+  log scale, 100 = typical). When the task ends the card shows an approximate final grade (A-F) next to the
+  efficiency, and a small `close` under the crab removes it from the panel.
 - **Day by day** (30 days kept): a bar per day on a log scale (efficiency; the dashed tick at 100 is in the middle), green above your average, amber below, grey with
   no commits; tokens, minutes, git lines and the share spent by subagents.
 - **Agents by type and model**: per agent, cost (top bar), how its time was spent (middle bar, always

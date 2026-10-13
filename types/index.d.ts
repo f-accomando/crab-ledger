@@ -15,6 +15,24 @@ export type Day = {
   pend: number
 }
 export type AgentRow = { type: string; fam: string; runs: number; stall: number; cost: number; tok: number; out: number; msgs: number; tools: number; edits: number; lw: number; ld: number; min: number; act: Record<'think' | 'read' | 'write' | 'run' | 'input' | 'wait', number>; repMin: number }
+/** A subagent of this session, followed live; removed from the panel by the user once it ended. */
+export type LiveAgent = {
+  id: string
+  type: string
+  desc: string
+  model: string
+  fam: string
+  status: 'running' | 'done' | 'failed'
+  start: number
+  end?: number
+  cost: number
+  steps: number
+  /** typical minutes and dollars of one run of this type (7-day history), the yardstick of progress, ETA and efficiency */
+  expMin: number
+  expCost: number
+  /** false when no history existed and the yardstick is a rough default */
+  known: boolean
+}
 export type Reread = { path: string; reads: number; rereads: number; cost: number; tok: number }
 export type Report = {
   at: number
@@ -30,6 +48,6 @@ export type Report = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'crab-ledger': { report: Report | null; note: string }
+    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number }
   }
 }

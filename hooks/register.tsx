@@ -1,12 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { Report } from '../types'
+import type { LiveAgent, Report } from '../types'
+import { CRAB_H, CRAB_W, LIVE_H, costOf, crabSvg, famOf, leftText, liveSvg, stats, typical } from './live'
 import { agentsHeight, agentsSvg, daysSvg, dur, headerSvg, moodOf, num, repeatedSvg, rereadSvg, usd, weekSvg } from './draw'
 
 const PANE = 'crab-ledger'
 const report = atom({ plugin: 'crab-ledger', key: 'report' } as const, null)
 const note = atom({ plugin: 'crab-ledger', key: 'note' } as const, 'loading…')
+const live = atom({ plugin: 'crab-ledger', key: 'live' } as const, [] as LiveAgent[])
+const nowAt = atom({ plugin: 'crab-ledger', key: 'now' } as const, 0)
 
 
 // The crab on the status line: claws open and shut, the face follows the trend.
@@ -62,14 +65,50 @@ export const register: Register = on => {
     void $.ui.open({ id: PANE, title: 'Crab ledger' })
     void refresh($)
     $.clock.every(90_000, () => void refresh($))
+    $.clock.every(2_000, async () => {
+      if ((await read($, live)).some(a => a.status === 'running')) {
+        const at = await $.clock.now()
+        await update($, nowAt, () => at)
+      }
+    })
 
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     void refresh($)
+    if (e.agentId) {
+      const at = await $.clock.now()
+      await update($, live, list => list.map(a => (a.id !== e.agentId ? a : { ...a, status: e.reason === 'answer' ? 'done' : 'failed', end: at })))
+      await update($, nowAt, () => at)
+    }
 
     return next(e)
+  })
+
+  // Subagents, followed live: the card shows progress, ETA and efficiency against the typical run of the same type.
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+    if (started.deny !== undefined || !started.agentId) return started
+    const at = await $.clock.now()
+    const model = String(started.model ?? '')
+    const fam = famOf(model)
+    const t = typical(current?.agents, e.subagentType, fam)
+    const run: LiveAgent = { id: started.agentId, type: e.subagentType, desc: e.description ?? '', model, fam, status: 'running', start: at, cost: 0, steps: 0, expMin: t.min, expCost: t.cost, known: t.known }
+    await update($, live, list => [...list.filter(a => a.id !== run.id), run].slice(-30))
+    await update($, nowAt, () => at)
+
+    return started
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    const result = yield* next(e)
+    const u = result.usage
+    if (!e.agentId || !u) return result
+    const model = u.model || e.model || ''
+    await update($, live, list => list.map(a => (a.id !== e.agentId ? a : { ...a, status: 'running', end: undefined, model, fam: famOf(model), steps: a.steps + 1, cost: a.cost + costOf(model, u) })))
+
+    return result
   })
 
   on('command.run', { command: 'ledger' }, async $ => {
@@ -81,7 +120,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
+    const { Box, Text, Button } = ui
     const r = await read($, report)
     const msg = await read($, note)
 
@@ -105,6 +144,41 @@ export const register: Register = on => {
           : `steady ▬ ${t.pct.toFixed(0)}%`
     const tColor = mood === 'up' ? 'green' : mood === 'down' ? 'red' : 'yellow'
     const rows = e.viewport?.rows ?? 40
+    const agentsLive = await read($, live)
+    const at = Math.max(await read($, nowAt), ...agentsLive.map(a => a.start), 0)
+    const dismiss = (id: string) => update($, live, list => list.filter(a => a.id !== id))
+    const closeBtn = (a: LiveAgent) => <Button key={`x${a.id}`} label="close" plain onPress={() => dismiss(a.id)} />
+    const liveBlock = (W: number | null, Svg: any) =>
+      agentsLive.length === 0 ? null : (
+        <Box flexDirection="column">
+          <Text bold>Subagents <Text dimColor>(bar = task progress vs a typical run · thin = efficiency, 100 = typical)</Text></Text>
+          {agentsLive.map(a => {
+            const st = stats(a, at)
+            return (
+              <Box key={a.id} flexDirection="column">
+                {Svg ? (
+                  <Box flexDirection="row">
+                    <Box flexDirection="column">
+                      <Svg key={`c${a.id}`} source={crabSvg(a)} alt={a.type} width={CRAB_W} height={CRAB_H} />
+                      {a.status !== 'running' && closeBtn(a)}
+                    </Box>
+                    <Svg key={`l${a.id}`} source={liveSvg((W ?? 300) - CRAB_W, a, at)} alt={`${a.desc || a.type}: ${a.status}, efficiency ${Math.round(st.eff)}${a.status !== 'running' ? `, grade ${st.grade}` : ''}`} width={(W ?? 300) - CRAB_W} height={LIVE_H} />
+                  </Box>
+                ) : (
+                  <Text>
+                    <Text color={a.status === 'failed' ? 'red' : a.status === 'done' ? 'green' : 'yellow'}>{a.status === 'running' ? '▣' : a.status === 'done' ? '✓' : '✗'}</Text> {a.desc || a.type}{' '}
+                    <Text dimColor>
+                      {'█'.repeat(Math.round(st.p * 10)).padEnd(10, '░')} {Math.round(st.p * 100)}% · {leftText(a, st)} · {a.type.replace(/^[^:]*:/, '')}·{a.fam} · eff {st.eff > 0 ? Math.round(st.eff) : '–'}
+                      {a.status !== 'running' ? ` · ≈${st.grade}` : ''}
+                    </Text>
+                  </Text>
+                )}
+                {!Svg && a.status !== 'running' && closeBtn(a)}
+              </Box>
+            )
+          })}
+        </Box>
+      )
 
     const tips = (
       <Box flexDirection="column">
@@ -138,6 +212,7 @@ export const register: Register = on => {
         <Box flexDirection="column" gap={1}>
           {draw('head', headerSvg(W, r), `Efficiency ${Math.round(r.week.eff)}: ${verdict}`, 156)}
           {draw('week', weekSvg(W, r), `Last 7 days: ${usd(r.week.cost)}, ${num(r.week.tok)} tokens, ${dur(r.week.min)}`, 146)}
+          {liveBlock(W, Svg)}
           <Text bold>Day by day <Text dimColor>(bar = efficiency, number = cost)</Text></Text>
           {draw('days', daysSvg(W, r, count), 'Efficiency per day', 30 + Math.min(count, r.days.length) * 34)}
           <Text bold>Agents by type and model <Text dimColor>(7 days)</Text></Text>
@@ -172,6 +247,8 @@ export const register: Register = on => {
           7g: {usd(r.week.cost)} · {num(r.week.tok)} tok · {dur(r.week.min)}
         </Text>
         <Text> </Text>
+        {liveBlock(null, null)}
+        {agentsLive.length > 0 && <Text> </Text>}
         {r.days.slice(-Math.max(5, Math.min(14, Math.floor((rows - 22) / 2)))).map(d => (
           <Box key={d.day} flexDirection="column">
             <Text>
