@@ -180,7 +180,7 @@ export const register: Register = on => {
             </Text>
             <Text dimColor>
               {'      '}
-              {num(d.tok)} tok · {dur(d.min)} · +{num(d.add)}/−{num(d.del)} · e{Math.round(d.eff)}
+              {num(d.tok)} tok · {dur(d.min)} · +{num(d.add)}/−{num(d.del)} · e{d.eff > 0 ? Math.round(d.eff) : '–'}
             </Text>
           </Box>
         ))}

@@ -10,7 +10,8 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
 
 - **Efficiency**: one number (100 = your typical day, from lines per dollar and lines per hour)
   and a verdict: improving, steady or worsening, from your last active days against the ones
-  before. The crab raises a claw when it improves and sweats when it worsens.
+  before. A day gets its own score only after 60 active minutes or $50 (a short cheap start would swing
+  the number wildly); until then it shows a dash. Documents and media (PDF, images...) are not counted as lines. The crab raises a claw when it improves and sweats when it worsens.
 - **Last 7 days** (a proxy for the weekly allowance): cost, tokens, active time, lines, and a bar
   that splits the cost into cache read, cache write, output and input.
 - **Day by day** (30 days kept): a bar per day, green above your average, amber below, grey with

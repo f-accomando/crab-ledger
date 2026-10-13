@@ -47,6 +47,8 @@ const keyOf = b => {
   return null
 }
 const CAT = { Read: 'read', Grep: 'read', Glob: 'read', LS: 'read', WebFetch: 'read', WebSearch: 'read', ToolSearch: 'read', Edit: 'write', Write: 'write', MultiEdit: 'write', NotebookEdit: 'write', Bash: 'run', PowerShell: 'run', Monitor: 'run' }
+// files that are not typed code: documents, images, media, fonts, archives
+const NOT_CODE = /\.(pdf|png|jpe?g|gif|webp|ico|bmp|mp4|mov|mp3|ogg|wav|zip|gz|7z|woff2?|ttf|bin|img|glb)$/i
 const ZERO_ACT = () => ({ think: 0, read: 0, write: 0, run: 0, input: 0, wait: 0 })
 const dayOf = ms => {
   const d = new Date(ms)
@@ -376,8 +378,8 @@ for (const c of repos.values()) {
         day = hashes.has(h) ? null : d
         hashes.add(h)
       } else if (day && l) {
-        const [a, b] = l.split('\t')
-        if (a === '-' || b === '-') continue
+        const [a, b, f] = l.split('\t')
+        if (a === '-' || b === '-' || NOT_CODE.test(f || '')) continue
         const na = +a, nb = +b
         if (na + nb > 3000) continue // generated or vendored: not typing
         const r = dayRow(day)
@@ -398,8 +400,8 @@ let pendAdd = 0, pendDel = 0
       seen.add(top)
       const o = execFileSync('git', ['diff', 'HEAD', '--numstat'], { cwd: top, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] })
       for (const l of o.split('\n')) {
-        const [a, b] = l.split('\t')
-        if (!l || a === '-' || b === '-') continue
+        const [a, b, f] = l.split('\t')
+        if (!l || a === '-' || b === '-' || NOT_CODE.test(f || '')) continue
         if (+a + +b > 3000) continue
         pendAdd += +a; pendDel += +b
       }
@@ -433,7 +435,9 @@ for (let i = DAYS - 1; i >= 0; i--) {
 }
 // efficiency: geometric mean of lines per dollar and lines per hour
 const eff = (lines, cost, min) => (lines > 0 && cost > 0 && min > 0 ? Math.sqrt((lines / cost) * (lines / (min / 60))) : 0)
-for (const r of out) r.eff = eff(r.lines, r.cost, r.min)
+// a day only gets a score once it is long (60 active min) or big ($50): a cheap short start swings wildly
+const solid = x => x.min >= 60 || x.cost >= 50
+for (const r of out) r.eff = solid(r) ? eff(r.lines, r.cost, r.min) : 0
 const sum = (a, f) => a.reduce((s, x) => s + f(x), 0)
 const win = a => ({ cost: sum(a, x => x.cost), tok: sum(a, x => x.tok), min: sum(a, x => x.min), lines: sum(a, x => x.lines) })
 const w = win(out.slice(-7))
@@ -443,7 +447,7 @@ const base = nz.length ? nz[Math.floor(nz.length / 2)] : 1
 for (const r of out) r.eff = (r.eff / base) * 100
 const raw = x => (x.lines > 0 && x.cost > 0 && x.min > 0 ? Math.sqrt((x.lines / x.cost) * (x.lines / (x.min / 60))) : 0)
 // trend: last 3 active days against the active days before them (up to 7)
-const act = out.filter(x => x.cost > 0 && x.lines > 0)
+const act = out.filter(x => x.cost > 0 && x.lines > 0 && solid(x))
 let trend = null
 if (act.length >= 2) {
   const cut = Math.min(3, Math.ceil(act.length / 2))
