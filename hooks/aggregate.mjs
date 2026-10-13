@@ -10,7 +10,7 @@ const ROOT = path.join(HOME, '.claude', 'projects')
 const CACHE = path.join(HOME, '.claude', 'crab-ledger-cache.json')
 const DAYS = 30
 const GAP = 5 * 60 * 1000
-const VER = 8
+const VER = 9
 
 // $ per million tokens: [input, output]. Cache write = 1.25x input, read = 0.1x input. Rough.
 const PRICES = [
@@ -79,6 +79,7 @@ function summarize(file, isAgent) {
   const stat = {} // day -> {BLOCKED, FAILED, REJECTED}: how subagents closed
   const deepNo = {} // day -> deep launched with no earlier Explore/planner/light/research in the session
   let sawHelper = false
+  let lastText = '' // last thing the assistant said: for a subagent, its closing status
   let prevTs = null
   let turn = 0
   for (const line of lines) {
@@ -117,6 +118,8 @@ function summarize(file, isAgent) {
         u: { in: u.input_tokens || 0, out: u.output_tokens || 0, cw: u.cache_creation_input_tokens || 0, cr: u.cache_read_input_tokens || 0 },
       })
       if (Array.isArray(m.content)) {
+        const tx = m.content.filter(b => b.type === 'text' && b.text).map(b => b.text).join('\n')
+        if (tx) lastText = tx
         for (const b of m.content) {
           if (b.type === 'tool_use' && !tools.has(b.id)) {
             const i = b.input || {}
@@ -218,7 +221,7 @@ function summarize(file, isAgent) {
   const ag = {}
   const bucket = (fam, day) => {
     const k = `${type}|${fam}`
-    return ((ag[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0, ...ZERO_ACT() })
+    return ((ag[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0, stall: 0, ...ZERO_ACT() })
   }
   const famCost = {}
   let first = null
@@ -236,7 +239,12 @@ function summarize(file, isAgent) {
     b.tools++
     if (t.edit) { b.edits++; b.lw += t.w; b.ld += t.d }
   }
-  if (first) bucket(first.fm, first.day).runs++
+  if (first) {
+    const b0 = bucket(first.fm, first.day)
+    b0.runs++
+    // a subagent that closes with BLOCKED / FAILED x2 / REJECTED did not complete its task
+    if (isAgent && /^\s*[*_`#> ]*(BLOCKED|FAILED x2|REJECTED)/.test(lastText.slice(0, 300))) b0.stall++
+  }
   const dom = Object.keys(famCost).sort((a, b) => famCost[b] - famCost[a])[0]
   if (dom) {
     for (const [a, z] of iv) {
@@ -339,7 +347,7 @@ for (const { d } of Object.values(live)) {
   }
   for (const [k, per] of Object.entries(d.ag || {})) {
     for (const [day, o] of Object.entries(per)) {
-      const a = ((agents[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0, ...ZERO_ACT() })
+      const a = ((agents[k] ||= {})[day] ||= { runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, ms: 0, stall: 0, ...ZERO_ACT() })
       for (const f of Object.keys(a)) a[f] += o[f]
     }
   }
@@ -488,10 +496,10 @@ const repeated = Object.values(rep7).sort((a, b) => b.ms - a.ms || b.n - a.n).sl
 const agentRows = []
 for (const [k, per] of Object.entries(agents)) {
   const [type, fam] = k.split('|')
-  const row = { type, fam, runs: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, min: 0, act: ZERO_ACT(), repMin: 0 }
+  const row = { type, fam, runs: 0, stall: 0, cost: 0, tok: 0, out: 0, msgs: 0, tools: 0, edits: 0, lw: 0, ld: 0, min: 0, act: ZERO_ACT(), repMin: 0 }
   for (const [day, o] of Object.entries(per)) {
     if (!recent.has(day)) continue
-    for (const f of ['runs', 'cost', 'tok', 'out', 'msgs', 'tools', 'edits', 'lw', 'ld']) row[f] += o[f]
+    for (const f of ['runs', 'stall', 'cost', 'tok', 'out', 'msgs', 'tools', 'edits', 'lw', 'ld']) row[f] += o[f]
     row.min += o.ms / 60000
     for (const c of Object.keys(row.act)) row.act[c] += o[c] / 60000
   }

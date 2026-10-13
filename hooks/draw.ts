@@ -88,24 +88,23 @@ export const headerSvg = (W: number, r: Report): string => {
         ? `▼ worsening ${t.pct.toFixed(0)}%`
         : `▬ steady ${t.pct.toFixed(0)}%`
   const effs = r.days.slice(-14)
-  const top = Math.max(...effs.map(d => d.eff), 100)
   const n = effs.length
   const gap = 3
   const bw = (W - 12 - gap * (n - 1)) / n
   const H0 = 30
   const bars = effs
     .map((d, i) => {
-      const h = d.eff > 0 ? Math.max(3, (d.eff / top) * H0) : 2
+      const h = d.eff > 0 ? Math.max(3, effPos(d.eff) * H0) : 2
       return `<rect x="${6 + i * (bw + gap)}" y="${118 + H0 - h}" width="${bw}" height="${h}" rx="2" fill="${d.eff > 0 ? (d.eff >= 100 ? GREEN : AMBER) : '#8E929A'}" opacity="${d.eff > 0 ? 1 : 0.35}"/>`
     })
     .join('')
-  const yBase = 118 + H0 - (100 / top) * H0
+  const yBase = 118 + H0 - effPos(100) * H0
   const body = `${crab(6, 8, 2.6, mood)}
 <text class="s" x="94" y="22" font-size="11">EFFICIENCY</text>
 <text x="94" y="62" font-size="38" font-weight="700" fill="${col}">${Math.round(r.week.eff)}</text>
 <text class="m" x="${94 + textW(String(Math.round(r.week.eff)), 38) + 6}" y="62" font-size="12">pt</text>
 <text x="94" y="82" font-size="13" font-weight="600" fill="${col}">${xml(verdict)}</text>
-<text class="m" x="94" y="98" font-size="10.5">${r.week.est ? `estimate · ${num(r.week.pend)} uncommitted lines counted · ` : ''}100 = your typical day · lines per $ and per hour</text>
+<text class="m" x="94" y="98" font-size="10.5">${r.week.est ? `estimate · ${num(r.week.pend)} uncommitted lines counted · ` : ''}100 = your typical day · log scale</text>
 <line class="ln" x1="6" x2="${W - 6}" y1="${yBase}" y2="${yBase}" stroke-width="1" stroke-dasharray="3 3"/>
 ${bars}
 <text class="m" x="6" y="114" font-size="10">last ${n} days</text>`
@@ -157,18 +156,21 @@ ${legend}`,
   )
 }
 
+// efficiency on a log scale: 100 sits in the middle, 25 and 400 are the edges (half and double are equally far from 100)
+const LO = 25, HI = 400
+export const effPos = (eff: number) => (eff <= 0 ? 0 : Math.min(1, Math.max(0, Math.log(eff / LO) / Math.log(HI / LO))))
+
 export const daysSvg = (W: number, r: Report, count: number): string => {
   const days = r.days.slice(-count)
-  // bar length = efficiency (dashed tick = 100, your typical day); the cost is the number on the right
-  const top = Math.max(...days.map(d => d.eff), 100) * 1.05
+  // bar length = efficiency on a log scale (dashed tick = 100, your typical day, in the middle); the cost is the number on the right
   const RH = 34
   const BX = 46
   const BW = W - BX - 64
-  const tick = BX + (100 / top) * BW
+  const tick = BX + effPos(100) * BW
   const rows = days
     .map((d, i) => {
       const y = 26 + i * RH
-      const w = Math.max(d.eff > 0 ? 3 : 0, (d.eff / top) * BW)
+      const w = d.eff > 0 ? Math.max(3, effPos(d.eff) * BW) : 0
       const col = barColor(d.eff, d.lines)
       const [, mo, da] = d.day.split('-')
       return `<text class="s" x="6" y="${y + 11}" font-size="11">${da}/${mo}</text>
@@ -219,7 +221,17 @@ export const agentsHeight = (n: number) => 40 + Math.min(7, n) * AGENT_RH
 export const agentsSvg = (W: number, r: Report): string => {
   const list = r.agents.slice(0, 7)
   const topCost = Math.max(...list.map(a => a.cost), 0.01)
-  const topMin = Math.max(...list.map(a => a.min), 0.01)
+  // efficiency per agent, 100 = the median of its own group:
+  //  writers: geometric mean of lines/$ and lines/hour (as the days); readers (no lines written): tasks completed per $
+  const writes = (a: (typeof list)[number]) => a.lw > 0
+  const enough = (a: (typeof list)[number]) => a.cost > 0 && a.runs > 0 && (a.runs >= 2 || a.cost >= 1)
+  const effRaw = (a: (typeof list)[number]) =>
+    !enough(a) ? 0 : writes(a) ? (a.min > 0 ? Math.sqrt((a.lw / a.cost) * (a.lw / (a.min / 60))) : 0) : Math.max(0, a.runs - a.stall) / a.cost
+  const medOf = (w: boolean) => {
+    const v = list.filter(a => writes(a) === w).map(effRaw).filter(x => x > 0).sort((x, y) => x - y)
+    return v.length ? v[Math.floor(v.length / 2)] : 0
+  }
+  const medW = medOf(true), medR = medOf(false)
   const RH = AGENT_RH
   const BW = W - 12
   const rows = list
@@ -232,9 +244,13 @@ export const agentsSvg = (W: number, r: Report): string => {
       const unit = a.type === 'main' ? (a.runs === 1 ? 'session' : 'sessions') : a.runs === 1 ? 'run' : 'runs'
       const rep = a.min > 0 && a.repMin > 0 ? ` · ↻ ${Math.round((a.repMin / a.min) * 100)}% repeated` : ''
       const sub1 = `${a.runs} ${unit} · ${dur(a.min)} worked${rep}`
-      const sub2 = `+${num(a.lw)}/−${num(a.ld)} lines · ${Math.round(perDollar)} lines/$ · ${usd(a.runs ? a.cost / a.runs : a.cost)}/run`
+      const med = writes(a) ? medW : medR
+      const eff = med > 0 ? (effRaw(a) / med) * 100 : 0
+      const done = Math.max(0, a.runs - a.stall)
+      const lead = writes(a) ? `+${num(a.lw)}/−${num(a.ld)} lines · ${Math.round(perDollar)} lines/$` : `${done}/${a.runs} done · ${(a.cost > 0 ? done / a.cost : 0).toFixed(1)} tasks/$`
+      const sub2 = `${lead} · ${usd(a.runs ? a.cost / a.runs : a.cost)}/run · eff ${eff > 0 ? Math.round(eff) : '–'}`
       const total = ACT.reduce((t, [k]) => t + (a.act[k as keyof typeof a.act] || 0), 0) || 1
-      const full = Math.max(2, (a.min / topMin) * BW)
+      const full = BW // the whole bar is 100% of this agent's time
       let x = 6
       const segs = ACT.map(([k, , c]) => {
         const w = ((a.act[k as keyof typeof a.act] || 0) / total) * full
@@ -249,7 +265,7 @@ export const agentsSvg = (W: number, r: Report): string => {
 <rect x="6" y="${y + 17}" width="${Math.max(3, (a.cost / topCost) * BW)}" height="8" rx="4" fill="${col}"/>
 <rect class="k" x="6" y="${y + 28}" width="${BW}" height="7" rx="3.5"/>
 <clipPath id="c${i}"><rect x="6" y="${y + 28}" width="${full}" height="7" rx="3.5"/></clipPath><g clip-path="url(#c${i})">${segs}</g>
-<rect x="6" y="${y + 38}" width="${Math.max(0, (a.repMin / topMin) * BW)}" height="2" rx="1" fill="${RED}"/>
+<rect class="k" x="6" y="${y + 38}" width="${BW}" height="4" rx="2"/>${eff > 0 ? `<rect x="6" y="${y + 38}" width="${Math.max(3, effPos(eff) * BW)}" height="4" rx="2" fill="${writes(a) ? (eff >= 100 ? GREEN : AMBER) : BLUE}"/>` : ''}<line class="ln" x1="${6 + BW / 2}" x2="${6 + BW / 2}" y1="${y + 36}" y2="${y + 44}" stroke-width="1"/>
 <text class="m" x="6" y="${y + 53}" font-size="10">${xml(sub1)}</text>
 <text class="m" x="6" y="${y + 66}" font-size="10">${xml(sub2)}</text>`
     })
@@ -258,7 +274,7 @@ export const agentsSvg = (W: number, r: Report): string => {
     const lx = 6 + i * (BW / 6)
     return `<rect x="${lx}" y="19" width="7" height="7" rx="2" fill="${c}"/><text class="s" x="${lx + 10}" y="26" font-size="9.5">${label}</text>`
   }).join('')
-  const head = `<text class="s" x="6" y="11" font-size="10">top bar = cost · bar below = time by activity · red = repeated tasks</text>${legend}`
+  const head = `<text class="s" x="6" y="11" font-size="10">top bar = cost · middle = how the time was spent (full bar = 100%) · thin = efficiency, log (green/amber lines, blue tasks done)</text>${legend}`
   return svg(W, agentsHeight(list.length), `${head}${rows}`)
 }
 

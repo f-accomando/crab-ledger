@@ -14,7 +14,7 @@ export type Day = {
   /** uncommitted lines (added + deleted) included in `lines` */
   pend: number
 }
-export type AgentRow = { type: string; fam: string; runs: number; cost: number; tok: number; out: number; msgs: number; tools: number; edits: number; lw: number; ld: number; min: number; act: Record<'think' | 'read' | 'write' | 'run' | 'input' | 'wait', number>; repMin: number }
+export type AgentRow = { type: string; fam: string; runs: number; stall: number; cost: number; tok: number; out: number; msgs: number; tools: number; edits: number; lw: number; ld: number; min: number; act: Record<'think' | 'read' | 'write' | 'run' | 'input' | 'wait', number>; repMin: number }
 export type Reread = { path: string; reads: number; rereads: number; cost: number; tok: number }
 export type Report = {
   at: number

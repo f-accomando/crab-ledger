@@ -14,8 +14,13 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
   the number wildly); until then it shows a dash. Documents and media (PDF, images...) are not counted as lines. The crab raises a claw when it improves and sweats when it worsens.
 - **Last 7 days** (a proxy for the weekly allowance): cost, tokens, active time, lines, and a bar
   that splits the cost into cache read, cache write, output and input.
-- **Day by day** (30 days kept): a bar per day, green above your average, amber below, grey with
+- **Day by day** (30 days kept): a bar per day on a log scale (efficiency; the dashed tick at 100 is in the middle), green above your average, amber below, grey with
   no commits; tokens, minutes, git lines and the share spent by subagents.
+- **Agents by type and model**: per agent, cost (top bar), how its time was spent (middle bar, always
+  100% wide so the split is easy to compare) and efficiency (thin bar, log scale, tick = the median
+  of its group). Agents that write lines are scored on lines per dollar and per hour (green above the
+  tick, amber below); read-only agents (explore, research, planner) on tasks completed per dollar
+  (blue). A run that closes with BLOCKED, FAILED x2 or REJECTED does not count as completed.
 - **Most re-read files**: reads, re-reads and estimated cost over 7 days.
 - **What to optimize**: up to four tips with the estimated weekly saving and the reason (long
   contexts, expensive models for small tasks, cache invalidation, long outputs, re-reads, big

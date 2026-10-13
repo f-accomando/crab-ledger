@@ -156,7 +156,7 @@ export const register: Register = on => {
     const cols = Math.max(32, Math.min(64, e.viewport?.columns ?? 44))
     const top = Math.max(...r.days.map(d => d.cost), 0.01)
     const barW = Math.max(8, cols - 22)
-    const bar = (x: number) => '█'.repeat(Math.round((x / top) * barW)).padEnd(barW, '░')
+    const bar = (x: number) => '█'.repeat(Math.round((Math.log1p(x) / Math.log1p(top)) * barW)).padEnd(barW, '░') // log scale: small days stay visible
     return (
       <Box flexDirection="column">
         <Text bold>
