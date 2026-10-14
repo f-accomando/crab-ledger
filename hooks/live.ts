@@ -81,14 +81,14 @@ export const costumeOf = (type: string): string => {
   const t = bare(type)
   return /plan/.test(t) ? 'planner' : /cod/.test(t) ? 'coder' : /research|explor/.test(t) ? 'research' : /mechanic/.test(t) ? 'mechanic' : /deep|heavy|careful|fable/.test(t) ? 'deep' : /light|medium|standard/.test(t) ? 'light' : 'other'
 }
-const crab = (x: number, y: number, costume: string, color: string, running: boolean): string => {
+export const crab = (x: number, y: number, costume: string, color: string, running: boolean): string => {
   const g: Record<string, string[]> = { bd: [], la: [], lb: [], it: [] }
   const f: Fill = (cx, cy, w, h, c, cls = 'bd') => (g[cls] ??= []).push(`<rect x="${cx}" y="${cy}" width="${w}" height="${h}" fill="${c}"/>`)
   ;(costumes[costume] ?? costumes.other)!(f, color)
   return `<g transform="translate(${x},${y}) scale(1.1)" shape-rendering="crispEdges"><g class="${running ? 'run' : ''}"><g class="bd">${g.bd!.join('')}<g class="it">${g.it!.join('')}</g></g><g class="la">${g.la!.join('')}</g><g class="lb">${g.lb!.join('')}</g></g></g>`
 }
 
-const CSS = `<style>
+export const CSS = `<style>
 .t{fill:#1f1f1f}.s{fill:#6b6b68}.m{fill:#9a9a96}.k{fill:#e9e8e5}.ln{stroke:#c9c8c4}
 @media (prefers-color-scheme: dark){.t{fill:#ececec}.s{fill:#a8a8a4}.m{fill:#7d7d79}.k{fill:#2f2f2d}.ln{stroke:#4a4a47}}
 .run g{transform-box:fill-box}

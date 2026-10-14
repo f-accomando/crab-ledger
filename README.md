@@ -20,6 +20,12 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
   of the same type and model (your last 7 days); the thin bar is efficiency (cost and time against that typical run,
   log scale, 100 = typical). When the task ends the card shows an approximate final grade (A-F) next to the
   efficiency, and a small `close` under the crab removes it from the panel.
+- **Operators** (only in a repo that has a `SYNC.md`): the people and AIs that coordinate through
+  `SYNC.md` and `sync/<NAME>.md`, read from the remote default branch (`git fetch` at most every
+  5 minutes, your working tree is not touched). One card each: state (`DONE`, `WORKING`, `WAITING`,
+  `IDLE`, `FREE`), task, ETA and a bar for the time since its last update (empty at 60 minutes). A
+  `WORKING` operator silent for over an hour counts as `IDLE`, and a warning shows when the table
+  and the operator's own file disagree. Without a `SYNC.md` the section does not appear.
 - **Day by day** (30 days kept): a bar per day on a log scale (efficiency; the dashed tick at 100 is in the middle), green above your average, amber below, grey with
   no commits; tokens, minutes, git lines and the share spent by subagents.
 - **Agents by type and model**: per agent, cost (top bar), how its time was spent (middle bar, always
@@ -76,3 +82,8 @@ or set `CLAUDE_CODE_PLUGIN_DIRS` to that path.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Settings
+
+Two switches in the plugin's settings (`/config`, plugin options), both on by default: **Show live subagents** and
+**Show operators**. Turning one off hides the section (and, for operators, stops the `git fetch`).

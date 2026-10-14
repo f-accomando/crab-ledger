@@ -33,6 +33,23 @@ export type LiveAgent = {
   /** false when no history existed and the yardstick is a rough default */
   known: boolean
 }
+export type OpState = 'DONE' | 'WORKING' | 'WAITING' | 'IDLE' | 'FREE' | '?'
+/** One operator (human or AI) of a repo that coordinates through SYNC.md. */
+export type Op = {
+  name: string
+  state: OpState
+  task: string
+  detail: string
+  eta: string
+  fileState?: OpState
+  fileTask?: string
+  /** ms since epoch of the last update written in the operator's own file */
+  updated?: number
+  /** WORKING but silent for over 60 minutes */
+  silent: boolean
+  /** the table and the operator's own file disagree */
+  clash: boolean
+}
 export type Reread = { path: string; reads: number; rereads: number; cost: number; tok: number }
 export type Report = {
   at: number
@@ -48,6 +65,6 @@ export type Report = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number }
+    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number; ops: { ops: Op[]; chain: string } }
   }
 }

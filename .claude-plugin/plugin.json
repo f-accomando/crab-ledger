@@ -1,9 +1,25 @@
-﻿{
+{
   "name": "crab-ledger",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Side pane: daily tokens, minutes, git lines, cost estimate, efficiency trend, most re-read files and what to optimize, subagents included. Animated pixel crab.",
-  "author": { "name": "Francesco Accomando" },
+  "author": {
+    "name": "Francesco Accomando"
+  },
   "repository": "https://github.com/f-accomando/crab-ledger",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "showSubagents": {
+      "type": "boolean",
+      "title": "Show live subagents",
+      "description": "Cards for the subagents of the session (progress, time left, efficiency, final grade) in the ledger pane.",
+      "default": true
+    },
+    "showOperators": {
+      "type": "boolean",
+      "title": "Show operators",
+      "description": "Operators section: reads SYNC.md of the repo from its remote branch (git fetch every 5 minutes). Only appears when the repo has a SYNC.md.",
+      "default": true
+    }
+  }
 }
