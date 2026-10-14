@@ -60,7 +60,7 @@ export type Op = {
 /** What the "Operators day by day" strip shows: measured from git (lines, WORKING time) and from the operators' task records. */
 export type Team = {
   ops: { id: string; name: string }[]
-  /** newest first, at most 3 */
+  /** the last 3 days with data, oldest first (the latest at the bottom, as in Day by day) */
   days: string[]
   /** "YYYY-MM-DD|ID" -> [added, deleted] */
   lines: Record<string, [number, number]>

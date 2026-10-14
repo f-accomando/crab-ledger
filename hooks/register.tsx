@@ -125,7 +125,7 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   }
   const dayset = new Set<string>()
   for (const k of [...Object.keys(lines), ...Object.keys(work)]) dayset.add(k.split('|')[0]!)
-  const days = [...dayset].sort().reverse().slice(0, 3)
+  const days = [...dayset].sort().slice(-3) // oldest first, the latest day at the bottom, as in Day by day
   const all = [...new Set(Object.keys(work).map(k => k.split('|')[0]!))]
   teamCache = days.length ? { ops: ai.map(o => ({ id: o.id, name: o.name })), days, lines, work, tasks, all } : null
   return teamCache
