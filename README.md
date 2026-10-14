@@ -20,12 +20,16 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
   of the same type and model (your last 7 days); the thin bar is efficiency (cost and time against that typical run,
   log scale, 100 = typical). When the task ends the card shows an approximate final grade (A-F) next to the
   efficiency, and a small `close` under the crab removes it from the panel.
-- **Operators** (only in a repo that has a `SYNC.md`): the people and AIs that coordinate through
-  `SYNC.md` and `sync/<NAME>.md`, read from the remote default branch (`git fetch` at most every
-  5 minutes, your working tree is not touched). One card each: state (`DONE`, `WORKING`, `WAITING`,
-  `IDLE`, `FREE`), task, ETA and a bar for the time since its last update (empty at 60 minutes). A
-  `WORKING` operator silent for over an hour counts as `IDLE`, and a warning shows when the table
-  and the operator's own file disagree. Without a `SYNC.md` the section does not appear.
+- **Operators** (only in a repo with a `sync/operators.toml` or a `SYNC.md`): the AIs that coordinate through
+  `sync/`, read from the remote default branch (`git fetch` at most every 5 minutes, your working tree is not touched).
+  One card each: state (`DONE`, `WORKING`, `WAITING <who>`, `IDLE`, `FREE`), task, progress, ETA and a bar for the time
+  since its last update (empty at 60 minutes). A `WORKING` operator silent for over an hour counts as `IDLE`. People
+  (`kind = "human"`) are not shown. See [sync/ convention](#sync-convention).
+- **Operators day by day** (up to 3 days, and Day by day drops to 7 days): a bar per day split by operator (share of
+  lines, measured from the git branches of the registry) and one line `spv +662/-185 eff 52 · cld ... · 3.2k lines`.
+  Efficiency per operator: lines per working hour for a writer (200 lines or more that day), tasks closed per working
+  hour for the others (blue); 100 = the operator's own median, and it needs 3 tracked days. Working time is the time in
+  `WORKING` in the history of its file (a stretch counts 60 minutes at most).
 - **Day by day** (30 days kept): a bar per day on a log scale (efficiency; the dashed tick at 100 is in the middle), green above your average, amber below, grey with
   no commits; tokens, minutes, git lines and the share spent by subagents.
 - **Agents by type and model**: per agent, cost (top bar), how its time was spent (middle bar, always
@@ -87,3 +91,16 @@ MIT, see [LICENSE](LICENSE).
 
 Two switches in the plugin's settings (`/config`, plugin options), both on by default: **Show live subagents** and
 **Show operators**. Turning one off hides the section (and, for operators, stops the `git fetch`).
+
+## Sync convention
+
+A repo that coordinates several operators can put these files in `sync/` (all optional, the ledger falls back to the
+table of `SYNC.md` when they are missing):
+
+- `sync/operators.toml`, written by the supervisor: `[[operator]]` blocks with `id`, `name`, `kind` (`ai` or `human`),
+  `file`, `ledger`, `branches` (globs) and `cost` (`measured`, `reported` or `none`).
+- `sync/<ID>.md`, written by that operator only: a block at the top, between `---` lines, with `id`, `state`
+  (`DONE`, `WORKING`, `WAITING`, `IDLE`, `FREE`), `task`, `waiting_on`, `progress` (0-100), `eta` and `updated`, all
+  times in ISO 8601 with a time zone (compared in UTC). The text below the block is free.
+- `sync/<ID>.ledger.jsonl`, append only: `{"t":"task","id":"AGY-08","status":"done","at":"..."}` closes a task.
+  Without it, the tasks closed are the DONE and READY rows of the Log in `SYNC.md`.

@@ -34,21 +34,42 @@ export type LiveAgent = {
   known: boolean
 }
 export type OpState = 'DONE' | 'WORKING' | 'WAITING' | 'IDLE' | 'FREE' | '?'
-/** One operator (human or AI) of a repo that coordinates through SYNC.md. */
+/** One operator (an AI) of a repo that coordinates through sync/operators.toml, or the table of SYNC.md as a fallback. */
 export type Op = {
+  /** short id from the registry ("SPV"); absent when read from the table of SYNC.md */
+  id?: string
   name: string
   state: OpState
   task: string
   detail: string
   eta: string
+  waitingOn?: string
+  /** 0-100 as the operator reports it */
+  progress?: number
+  /** how the state was read: its own header block, its older free text, or the table of SYNC.md */
+  source: 'block' | 'text' | 'table'
   fileState?: OpState
   fileTask?: string
-  /** ms since epoch of the last update written in the operator's own file */
+  /** ms since epoch of the last update the operator wrote */
   updated?: number
   /** WORKING but silent for over 60 minutes */
   silent: boolean
-  /** the table and the operator's own file disagree */
+  /** the table and the operator's own file disagree (only when the operator has no header block) */
   clash: boolean
+}
+/** What the "Operators day by day" strip shows: measured from git (lines, WORKING time) and from the operators' task records. */
+export type Team = {
+  ops: { id: string; name: string }[]
+  /** newest first, at most 3 */
+  days: string[]
+  /** "YYYY-MM-DD|ID" -> [added, deleted] */
+  lines: Record<string, [number, number]>
+  /** "YYYY-MM-DD|ID" -> minutes in state WORKING */
+  work: Record<string, number>
+  /** "YYYY-MM-DD|ID" -> tasks closed */
+  tasks: Record<string, number>
+  /** every day with tracked time, for the baseline of the efficiency */
+  all: string[]
 }
 export type Reread = { path: string; reads: number; rereads: number; cost: number; tok: number }
 export type Report = {
@@ -65,6 +86,6 @@ export type Report = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number; ops: { ops: Op[]; chain: string } }
+    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number; ops: { ops: Op[]; chain: string; team: Team | null } }
   }
 }
