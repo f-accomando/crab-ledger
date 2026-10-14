@@ -22,7 +22,7 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
   efficiency, and a small `close` under the crab removes it from the panel.
 - **Operators** (only in a repo with a `sync/operators.toml` or a `SYNC.md`): the AIs that coordinate through
   `sync/`, read from the remote default branch (`git fetch` at most every 5 minutes, your working tree is not touched).
-  One card each: state (`DONE`, `WORKING`, `WAITING <who>`, `IDLE`, `FREE`), task, progress, ETA and a bar for the time
+  One card each: state (`DONE`, `WORKING`, `WAITING`, `IDLE`, `FREE`; who it waits for is on the second line), task, progress, ETA and a bar for the time
   since its last update (empty at 60 minutes). A `WORKING` operator silent for over an hour counts as `IDLE`. People
   (`kind = "human"`) are not shown. See [sync/ convention](#sync-convention).
 - **Operators day by day** (up to 3 days, and Day by day drops to 7 days): a bar per day split by operator (share of

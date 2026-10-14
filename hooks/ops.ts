@@ -245,9 +245,11 @@ export const opSvg = (W: number, o: Op, now: number): string => {
   const freshCol = age === undefined ? '#8E929A' : age < 15 * 60_000 ? GREEN : age < OPS_SILENT_MIN * 60_000 ? AMBER : RED
   const X = 44
   const BW = W - X - 6
-  const shown = o.silent ? 'IDLE (silent)' : o.state === 'WAITING' && o.waitingOn ? `WAITING ${o.waitingOn}` : o.state
+  // the tag is one word; why it is IDLE or who it waits for goes in the lines around it
+  const shown = o.silent ? 'IDLE' : o.state
   const sub = o.task ? o.task : o.detail
-  const lines = [sub, o.silent || o.clash || o.detail === sub ? '' : o.detail].filter(Boolean)
+  const waits = o.state === 'WAITING' && o.waitingOn ? `waiting on ${o.waitingOn}` : ''
+  const lines = [sub, waits || (o.silent || o.clash || o.detail === sub ? '' : o.detail)].filter(Boolean)
   const warn = o.clash
     ? `table says ${o.state}, its own file says ${o.fileState}${o.fileTask ? ' ' + o.fileTask : ''}`
     : o.silent

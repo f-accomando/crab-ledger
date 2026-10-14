@@ -299,10 +299,10 @@ export const register: Register = (on, options) => {
           <Text bold>Operators <Text dimColor>(sync/ · bar = time since last update, empty at 60 min)</Text></Text>
           {opsData.ops.map(o =>
             Svg ? (
-              <Svg key={`o${o.name}`} source={opSvg(W0, o, at)} alt={`${o.name}: ${o.silent ? 'IDLE (silent)' : o.state}`} width={W0} height={OP_H} />
+              <Svg key={`o${o.name}`} source={opSvg(W0, o, at)} alt={`${o.name}: ${o.silent ? 'IDLE' : o.state}`} width={W0} height={OP_H} />
             ) : (
               <Text key={`o${o.name}`}>
-                <Text color={stateColor(o) === '#D0453F' ? 'red' : o.state === 'WORKING' ? 'blue' : o.state === 'DONE' ? 'green' : 'yellow'}>●</Text> {o.name} <Text bold>{o.silent ? 'IDLE (silent)' : o.state === 'WAITING' && o.waitingOn ? `WAITING ${o.waitingOn}` : o.state}</Text> <Text dimColor>{o.task || o.detail}{o.clash ? ` · ⚠ file says ${o.fileState}` : ''}</Text>
+                <Text color={stateColor(o) === '#D0453F' ? 'red' : o.state === 'WORKING' ? 'blue' : o.state === 'DONE' ? 'green' : 'yellow'}>●</Text> {o.name} <Text bold>{o.silent ? 'IDLE' : o.state}</Text> <Text dimColor>{o.task || o.detail}{o.state === 'WAITING' && o.waitingOn ? ` · waiting on ${o.waitingOn}` : ''}{o.silent ? ' · silent for over 60 min' : ''}{o.clash ? ` · ⚠ file says ${o.fileState}` : ''}</Text>
               </Text>
             ),
           )}
