@@ -1,6 +1,8 @@
 export type Day = {
   day: string
   tok: number
+  read: number
+  lw: number
   out: number
   cost: number
   min: number
@@ -82,7 +84,7 @@ export type Report = {
   at: number
   days: Day[]
   rereads: Reread[]
-  week: { cost: number; tok: number; min: number; lines: number; eff: number; trend: { pct: number; recent: number; before: number } | null; est: boolean; pend: number }
+  week: { cost: number; tok: number; read: number; lw: number; min: number; lines: number; eff: number; baseDays: number; provisional: boolean; trend: { pct: number; recent: number; before: number } | null; est: boolean; pend: number }
   scanned: number
   mix: { in: number; out: number; cw: number; cr: number; agent: number; ctxAvg: number; fam: Record<string, number>; rereadAll: number }
   agents: AgentRow[]

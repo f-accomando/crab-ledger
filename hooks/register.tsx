@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { LiveAgent, Op, OpState, Report, Team } from '../types'
-import { OP_H, WRITER_LINES, effOf, globRe, localDay, opSvg, parseFile, parseOps, parseToml, stateColor, teamHeight, teamSvg, workMinutes } from './ops'
+import { OP_H, WRITER_LINES, effOf, globRe, looksOf, localDay, opSvg, parseFile, parseOps, parseToml, stateColor, teamHeight, teamSvg, workMinutes } from './ops'
 import type { Reg } from './ops'
 import { CRAB_H, CRAB_W, LIVE_H, costOf, crabSvg, famOf, leftText, liveSvg, stats, typical } from './live'
 import { agentsHeight, agentsSvg, daysSvg, dur, headerSvg, moodOf, num, repeatedSvg, rereadSvg, usd, weekSvg } from './draw'
@@ -312,7 +312,7 @@ export const register: Register = (on, options) => {
           <Text bold>Operators <Text dimColor>(sync/ · bar = time since last update, empty at 60 min)</Text></Text>
           {opsData.ops.map(o =>
             Svg ? (
-              <Svg key={`o${o.name}`} source={opSvg(W0, o, at)} alt={`${o.name}: ${o.silent ? 'IDLE' : o.state}`} width={W0} height={OP_H} />
+              <Svg key={`o${o.name}`} source={opSvg(W0, o, at, looks[o.id ?? o.name])} alt={`${o.name}: ${o.silent ? 'IDLE' : o.state}`} width={W0} height={OP_H} />
             ) : (
               <Text key={`o${o.name}`}>
                 <Text color={stateColor(o) === '#D0453F' ? 'red' : o.state === 'WORKING' ? 'blue' : o.state === 'DONE' ? 'green' : 'yellow'}>●</Text> {o.name} <Text bold>{o.silent ? 'IDLE' : o.state}</Text> <Text dimColor>{o.task || o.detail}{o.state === 'WAITING' && o.waitingOn ? ` · waiting on ${o.waitingOn}` : ''}{o.silent ? ' · silent for over 60 min' : ''}{o.clash ? ` · ⚠ file says ${o.fileState}` : ''}</Text>
@@ -322,12 +322,13 @@ export const register: Register = (on, options) => {
         </Box>
       )
     const team = wantOperators ? opsData.team : null
+    const looks = looksOf(opsData.ops.map(o => o.id ?? o.name))
     const teamBlock = (Svg: any) =>
       !team ? null : (
         <Box flexDirection="column">
           <Text bold>Operators day by day <Text dimColor>(bar = share of lines per operator · eff = lines/h, or tasks/h under {WRITER_LINES} lines)</Text></Text>
           {Svg ? (
-            <Svg key="team" source={teamSvg(W0, team)} alt="Operators day by day" width={W0} height={teamHeight(team)} />
+            <Svg key="team" source={teamSvg(W0, team, looks)} alt="Operators day by day" width={W0} height={teamHeight(team)} />
           ) : (
             team.days.map(d => (
               <Text key={d}>
@@ -459,7 +460,7 @@ export const register: Register = (on, options) => {
             </Text>
             <Text dimColor>
               {'      '}
-              {num(d.tok)} tok · {dur(d.min)} · +{num(d.add)}/−{num(d.del)} · e{d.eff > 0 ? Math.round(d.eff) : '–'}
+              {num(d.read)} read · {num(d.out)} out · {dur(d.min)} · +{num(d.add)}/−{num(d.del)} · e{d.eff > 0 ? Math.round(d.eff) : '–'}
             </Text>
           </Box>
         ))}

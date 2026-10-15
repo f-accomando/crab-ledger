@@ -104,7 +104,7 @@ export const headerSvg = (W: number, r: Report): string => {
 <text x="94" y="62" font-size="38" font-weight="700" fill="${col}">${Math.round(r.week.eff)}</text>
 <text class="m" x="${94 + textW(String(Math.round(r.week.eff)), 38) + 6}" y="62" font-size="12">pt</text>
 <text x="94" y="82" font-size="13" font-weight="600" fill="${col}">${xml(verdict)}</text>
-<text class="m" x="94" y="98" font-size="10.5">${r.week.est ? `estimate · ${num(r.week.pend)} uncommitted lines counted · ` : ''}100 = your typical day · log scale</text>
+<text class="m" x="94" y="98" font-size="10.5">${r.week.est ? `estimate · ${num(r.week.pend)} uncommitted lines counted · ` : ''}100 = your typical day${r.week.provisional ? ` (from ${r.week.baseDays} days)` : ''} · log scale</text>
 <line class="ln" x1="6" x2="${W - 6}" y1="${yBase}" y2="${yBase}" stroke-width="1" stroke-dasharray="3 3"/>
 ${bars}
 <text class="m" x="6" y="114" font-size="10">last ${n} days</text>`
@@ -177,7 +177,7 @@ export const daysSvg = (W: number, r: Report, count: number): string => {
 <rect class="k" x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/>
 <rect x="${BX}" y="${y}" width="${w}" height="13" rx="6.5" fill="${col}"/>
 <text class="t" x="${W - 6}" y="${y + 11}" font-size="12" font-weight="600" text-anchor="end">${usd(d.cost)}</text>
-<text class="m" x="${BX}" y="${y + 26}" font-size="10">${num(d.tok)} tok · ${dur(d.min)} · <tspan fill="${GREEN}">+${num(d.add)}</tspan> <tspan fill="${RED}">−${num(d.del)}</tspan> · eff ${d.eff > 0 ? Math.round(d.eff) : '–'}${d.est ? ' (estimate)' : ''}${d.agentShare > 0.05 ? ` · agents ${Math.round(d.agentShare * 100)}%` : ''}</text>`
+<text class="m" x="${BX}" y="${y + 26}" font-size="10">${num(d.read)} read · ${num(d.out)} out · ${dur(d.min)} · <tspan fill="${GREEN}">+${num(d.add)}</tspan> <tspan fill="${RED}">−${num(d.del)}</tspan> · eff ${d.eff > 0 ? Math.round(d.eff) : '–'}${d.est ? ' (estimate)' : ''}${d.agentShare > 0.05 ? ` · agents ${Math.round(d.agentShare * 100)}%` : ''}</text>`
     })
     .join('')
   const leg = (x: number, c: string, t: string) => `<rect x="${x}" y="3" width="8" height="8" rx="2" fill="${c}"/><text class="s" x="${x + 12}" y="11" font-size="10">${t}</text>`

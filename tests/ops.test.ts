@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { effOf, globRe, isoMs, parseBlock, parseFile, parseOps, parseToml, plain, workMinutes } from '../hooks/ops'
+import { effOf, globRe, isoMs, looksOf, parseBlock, parseFile, parseOps, parseToml, plain, workMinutes } from '../hooks/ops'
 
 const SYNC = `| Agente | Stato | Dettaglio | ETA |
 |---|---|---|---|
@@ -140,4 +140,12 @@ test('wakeup and ack are read, and the unread rows of the Log are counted (not t
   expect(op('2026-10-15T12:30+02:00').unread).toBe(2)
   expect(op('2026-10-15T14:00+02:00').unread).toBe(0)
   expect(op('').unread).toBeUndefined()
+})
+
+test('every operator gets its own costume and color, the same one every time', async () => {
+  const ids = ['SPV', 'NET', 'B16', 'AGY', 'CI']
+  const a = looksOf(ids)
+  expect(new Set(ids.map(i => a[i]!.costume)).size).toBe(ids.length)
+  expect(new Set(ids.map(i => a[i]!.color)).size).toBe(ids.length)
+  expect(looksOf(ids)).toEqual(a)
 })

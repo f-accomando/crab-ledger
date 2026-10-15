@@ -10,7 +10,7 @@ const ROOT = path.join(HOME, '.claude', 'projects')
 const CACHE = path.join(HOME, '.claude', 'crab-ledger-cache.json')
 const DAYS = 30
 const GAP = 5 * 60 * 1000
-const VER = 9
+const VER = 10
 
 // $ per million tokens: [input, output]. Cache write = 1.25x input, read = 0.1x input. Rough.
 const PRICES = [
@@ -49,6 +49,14 @@ const keyOf = b => {
 const CAT = { Read: 'read', Grep: 'read', Glob: 'read', LS: 'read', WebFetch: 'read', WebSearch: 'read', ToolSearch: 'read', Edit: 'write', Write: 'write', MultiEdit: 'write', NotebookEdit: 'write', Bash: 'run', PowerShell: 'run', Monitor: 'run' }
 // files that are not typed code: documents, images, media, fonts, archives
 const NOT_CODE = /\.(pdf|png|jpe?g|gif|webp|ico|bmp|mp4|mov|mp3|ogg|wav|zip|gz|7z|woff2?|ttf|bin|img|glb)$/i
+// a line of code counts 1, a line of documentation 0.3, a line of data/config 0.15
+const CODE_EXT = new Set(['c', 'h', 'py', 'lua', 'rs', 'ts', 'tsx', 'js', 'mjs', 'sh', 'S', 'mk', 'asm', 'go', 'java', 'cpp', 'cs', 'rb', 'swift', 'kt'])
+const DOC_EXT = new Set(['md', 'txt', 'rst'])
+const lineWeight = f => {
+  const b = String(f).split('/').pop()
+  const e = b.includes('.') ? b.split('.').pop() : ''
+  return b === 'Makefile' || CODE_EXT.has(e) ? 1 : DOC_EXT.has(e) ? 0.3 : 0.15
+}
 const ZERO_ACT = () => ({ think: 0, read: 0, write: 0, run: 0, input: 0, wait: 0 })
 const dayOf = ms => {
   const d = new Date(ms)
@@ -172,6 +180,15 @@ function summarize(file, isAgent) {
     const fm = famOf(x.model)
     o.fam[fm] = (o.fam[fm] || 0) + costOf(x.model, x.u)
   }
+  // every message once, to count a resumed or copied session only once across files
+  const mods = []
+  const ml = []
+  for (const [id, x] of msgs) {
+    if (Number.isNaN(x.ts)) continue
+    let mi = mods.indexOf(x.model || '')
+    if (mi < 0) { mods.push(x.model || ''); mi = mods.length - 1 }
+    ml.push([String(id).slice(-20), dayOf(x.ts), mi, x.u.in, x.u.out, x.u.cw, x.u.cr])
+  }
   // active intervals
   stamps.sort((a, b) => a - b)
   const iv = []
@@ -263,7 +280,7 @@ function summarize(file, isAgent) {
       .map(([k, per]) => [k, per, Object.values(per).reduce((t, o) => t + o.ms + o.n * 1000, 0)])
       .sort((a, b) => b[2] - a[2]).slice(0, 150).map(([k, per]) => [k, per]),
   )
-  return { agent: isAgent, byDay, iv, reads: rr, cwds: [...cwds], ag, rk: rkTop, rkb: dom ? `${type}|${dom}` : null, wh, stat, deepNo }
+  return { agent: isAgent, byDay, ml, mods, iv, reads: rr, cwds: [...cwds], ag, rk: rkTop, rkb: dom ? `${type}|${dom}` : null, wh, stat, deepNo }
 }
 
 let cache = { v: VER, files: {} }
@@ -294,7 +311,7 @@ try { fs.writeFileSync(CACHE, JSON.stringify(cache)) } catch {}
 
 // ---- merge
 const days = {}
-const dayRow = d => (days[d] ||= { day: d, in: 0, out: 0, cw: 0, cr: 0, cost: 0, add: 0, del: 0, iv: [], agentCost: 0, msgs: 0, c: { in: 0, out: 0, cw: 0, cr: 0 }, fam: {} })
+const dayRow = d => (days[d] ||= { day: d, in: 0, out: 0, cw: 0, cr: 0, cost: 0, add: 0, del: 0, lw: 0, iv: [], agentCost: 0, msgs: 0, c: { in: 0, out: 0, cw: 0, cr: 0 }, fam: {} })
 const cwds = new Set()
 const agents = {}
 const repAll = {} // key -> {byDay, files}
@@ -303,7 +320,32 @@ const rereads = {}
 const wholeAll = {} // day -> {n, tok, cost}
 const statAll = {} // day -> {BLOCKED, FAILED, REJECTED}
 const deepNoAll = {} // day -> n
-for (const { d } of Object.values(live)) {
+const seenMsg = new Set()
+// the oldest file keeps a message, the copies in later files are taken out of the day totals
+const dedup = d => {
+  const dup = []
+  for (const m of d.ml || []) {
+    if (seenMsg.has(m[0])) dup.push(m)
+    else seenMsg.add(m[0])
+  }
+  if (!dup.length) return d.byDay
+  const by = JSON.parse(JSON.stringify(d.byDay))
+  for (const [, day, mi, i, o, cw, cr] of dup) {
+    const t = by[day]
+    if (!t) continue
+    const model = d.mods[mi], u = { in: i, out: o, cw, cr }
+    t.in -= i; t.out -= o; t.cw -= cw; t.cr -= cr
+    const c = costOf(model, u)
+    t.cost -= c; t.msgs--
+    const cc = comps(model, u)
+    for (const k of Object.keys(cc)) t.c[k] -= cc[k]
+    const fm = famOf(model)
+    t.fam[fm] = (t.fam[fm] || 0) - c
+  }
+  return by
+}
+for (const { d } of Object.values(live).sort((a, b) => a.m - b.m)) {
+  const byDayD = dedup(d)
   for (const [day, o] of Object.entries(d.wh || {})) {
     const x = (wholeAll[day] ||= { n: 0, tok: 0, cost: 0 })
     x.n += o.n; x.tok += o.tok; x.cost += o.cost
@@ -313,7 +355,7 @@ for (const { d } of Object.values(live)) {
     for (const k of Object.keys(x)) x[k] += o[k] || 0
   }
   for (const [day, n] of Object.entries(d.deepNo || {})) deepNoAll[day] = (deepNoAll[day] || 0) + n
-  for (const [day, o] of Object.entries(d.byDay)) {
+  for (const [day, o] of Object.entries(byDayD)) {
     const r = dayRow(day)
     r.in += o.in; r.out += o.out; r.cw += o.cw; r.cr += o.cr; r.cost += o.cost
     if (d.agent) r.agentCost += o.cost
@@ -391,14 +433,14 @@ for (const c of repos.values()) {
         const na = +a, nb = +b
         if (na + nb > 3000) continue // generated or vendored: not typing
         const r = dayRow(day)
-        r.add += na; r.del += nb
+        r.add += na; r.del += nb; r.lw += (na + nb) * lineWeight(f)
       }
     }
   } catch {}
 }
 
 // ---- today's uncommitted work: counted as an estimate until it is committed
-let pendAdd = 0, pendDel = 0
+let pendAdd = 0, pendDel = 0, pendLw = 0
 {
   const seen = new Set()
   for (const c of tops) {
@@ -411,7 +453,7 @@ let pendAdd = 0, pendDel = 0
         const [a, b, f] = l.split('\t')
         if (!l || a === '-' || b === '-' || NOT_CODE.test(f || '')) continue
         if (+a + +b > 3000) continue
-        pendAdd += +a; pendDel += +b
+        pendAdd += +a; pendDel += +b; pendLw += (+a + +b) * lineWeight(f)
       }
     } catch {}
   }
@@ -435,35 +477,39 @@ for (let i = DAYS - 1; i >= 0; i--) {
   const k = dayOf(d.getTime())
   const r = days[k] || dayRow(k)
   const tok = r.in + r.out + r.cw + r.cr
+  const read = r.in + r.cw + r.cr
   const min = union(r.iv)
   const pend = i === 0 ? pendAdd + pendDel : 0
   const add = r.add + (i === 0 ? pendAdd : 0), del = r.del + (i === 0 ? pendDel : 0)
   const lines = add + del
-  out.push({ day: k, tok, out: r.out, cost: r.cost, min, add, del, lines, eff: 0, est: pend > 0, pend, agentShare: r.cost ? r.agentCost / r.cost : 0 })
+  const lw = r.lw + (i === 0 ? pendLw : 0)
+  out.push({ day: k, tok, read, lw, out: r.out, cost: r.cost, min, add, del, lines, eff: 0, est: pend > 0, pend, agentShare: r.cost ? r.agentCost / r.cost : 0 })
 }
-// efficiency: geometric mean of lines per dollar and lines per hour
-const eff = (lines, cost, min) => (lines > 0 && cost > 0 && min > 0 ? Math.sqrt((lines / cost) * (lines / (min / 60))) : 0)
+// efficiency: geometric mean of weighted lines per million tokens read and weighted lines per hour
+const eff = (lw, read, min) => (lw > 0 && read > 0 && min > 0 ? Math.sqrt((lw / (read / 1e6)) * (lw / (min / 60))) : 0)
 // a day only gets a score once it is long (60 active min) or big ($50): a cheap short start swings wildly
 const solid = x => x.min >= 60 || x.cost >= 50
-for (const r of out) r.eff = solid(r) ? eff(r.lines, r.cost, r.min) : 0
+for (const r of out) r.eff = solid(r) ? eff(r.lw, r.read, r.min) : 0
 const sum = (a, f) => a.reduce((s, x) => s + f(x), 0)
-const win = a => ({ cost: sum(a, x => x.cost), tok: sum(a, x => x.tok), min: sum(a, x => x.min), lines: sum(a, x => x.lines) })
+const win = a => ({ cost: sum(a, x => x.cost), tok: sum(a, x => x.tok), read: sum(a, x => x.read), lw: sum(a, x => x.lw), min: sum(a, x => x.min), lines: sum(a, x => x.lines) })
 const w = win(out.slice(-7))
 // 100 = the median active day of the last 30
 const nz = out.map(x => x.eff).filter(x => x > 0).sort((a, b) => a - b)
 const base = nz.length ? nz[Math.floor(nz.length / 2)] : 1
 for (const r of out) r.eff = (r.eff / base) * 100
-const raw = x => (x.lines > 0 && x.cost > 0 && x.min > 0 ? Math.sqrt((x.lines / x.cost) * (x.lines / (x.min / 60))) : 0)
+const raw = x => eff(x.lw, x.read, x.min)
+// under 8 scored days the 100 is provisional and no verdict on the trend is given
+const PROVISIONAL = 8
 // trend: last 3 active days against the active days before them (up to 7)
-const act = out.filter(x => x.cost > 0 && x.lines > 0 && solid(x))
+const act = out.filter(x => x.read > 0 && x.lw > 0 && solid(x))
 let trend = null
-if (act.length >= 2) {
+if (act.length >= 2 && nz.length >= PROVISIONAL) {
   const cut = Math.min(3, Math.ceil(act.length / 2))
   const rec = win(act.slice(-cut)), bef = win(act.slice(-cut - 7, -cut))
   const a = raw(rec), b = raw(bef)
   if (a > 0 && b > 0) trend = { pct: (a / b - 1) * 100, recent: cut, before: Math.min(7, act.length - cut) }
 }
-const week = { ...w, eff: (raw(w) / base) * 100, trend, est: out[out.length - 1].est, pend: out[out.length - 1].pend }
+const week = { ...w, eff: (raw(w) / base) * 100, trend, baseDays: nz.length, provisional: nz.length < PROVISIONAL, est: out[out.length - 1].est, pend: out[out.length - 1].pend }
 // re-reads over the last 7 days
 const recent = new Set(out.slice(-7).map(x => x.day))
 const top = Object.values(rereads)

@@ -161,6 +161,34 @@ export const parseOps = (sync: string, files: Record<string, string>, now: numbe
   return { ops, chain }
 }
 
+// --- the look of each operator: a costume and an accent color, drawn from the id so it is stable but not generic
+
+export const LOOKS = ['planner', 'coder', 'research', 'mechanic', 'light', 'deep']
+export const ACCENTS = ['#D97757', '#9B7BD6', '#3FA7A0', '#E0A030', '#5B8DEF', '#D0658F', '#7FA34A', '#C2693F']
+export type Look = { costume: string; color: string }
+const hash = (s: string) => {
+  let h = 2166136261
+  for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+  return h >>> 0
+}
+/** A costume and an accent for every id: pseudo-random from the id, moved on to the next free one when two would look the same. */
+export const looksOf = (ids: string[]): Record<string, Look> => {
+  const usedC = new Set<number>()
+  const usedA = new Set<number>()
+  const pick = (start: number, n: number, used: Set<number>) => {
+    let i = start % n
+    while (used.has(i) && used.size < n) i = (i + 1) % n
+    used.add(i)
+    return i
+  }
+  const out: Record<string, Look> = {}
+  for (const id of ids) {
+    const h = hash(id)
+    out[id] = { costume: LOOKS[pick(h, LOOKS.length, usedC)]!, color: ACCENTS[pick(h >>> 8, ACCENTS.length, usedA)]! }
+  }
+  return out
+}
+
 // --- Operators day by day
 
 export const OP_COLORS = ['#D97757', '#9B7BD6', '#3FA7A0', '#E0A030', '#5B8DEF']
@@ -218,7 +246,7 @@ export const effOf = (t: Team, id: string, d: string): number => {
 const kk = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 export const TEAM_RH = 34
 export const teamHeight = (t: Team) => 10 + t.days.length * TEAM_RH
-export const teamSvg = (W: number, t: Team): string => {
+export const teamSvg = (W: number, t: Team, looks: Record<string, Look> = {}): string => {
   const BX = 46
   const BW = W - BX - 6
   const rows = t.days
@@ -231,14 +259,14 @@ export const teamSvg = (W: number, t: Team): string => {
       const segs = per
         .map(([a, b], j) => {
           const w = ((a + b) / (total || 1)) * BW
-          const r = `<rect x="${x}" y="${y}" width="${w}" height="13" fill="${OP_COLORS[j % OP_COLORS.length]}"/>`
+          const r = `<rect x="${x}" y="${y}" width="${w}" height="13" fill="${looks[t.ops[j]!.id]?.color ?? OP_COLORS[j % OP_COLORS.length]}"/>`
           x += w
           return r
         })
         .join('')
       const list = t.ops
         .map((o, j) => {
-          const c = OP_COLORS[j % OP_COLORS.length]
+          const c = looks[o.id]?.color ?? OP_COLORS[j % OP_COLORS.length]
           const id = o.id.toLowerCase()
           const [a, b] = per[j] ?? [0, 0]
           if (!(t.work[`${d}|${o.id}`] ?? 0) && a + b === 0) return `<tspan fill="${c}">${id}</tspan> –`
@@ -272,7 +300,7 @@ const etaText = (eta: string) => {
 }
 
 export const OP_H = 92
-export const opSvg = (W: number, o: Op, now: number): string => {
+export const opSvg = (W: number, o: Op, now: number, look?: Look): string => {
   const col = stateColor(o)
   const live = o.state === 'WORKING' && !o.silent
   const age = o.updated !== undefined ? Math.max(0, now - o.updated) : undefined
@@ -299,7 +327,7 @@ export const opSvg = (W: number, o: Op, now: number): string => {
   const badges = o.source === 'block' ? `<text class="m" x="${X}" y="86" font-size="10">${[wake, read].filter(Boolean).join(' · ')}</text>` : ''
   const progress = o.progress !== undefined ? `${o.progress}% · ` : ''
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${OP_H}" viewBox="0 0 ${W} ${OP_H}" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${CSS}
-${crab(0, 16, COSTUME[(o.id ?? o.name).toLowerCase()] ?? COSTUME[o.name.toLowerCase()] ?? 'other', col, live)}
+${crab(0, 16, look?.costume ?? COSTUME[(o.id ?? o.name).toLowerCase()] ?? COSTUME[o.name.toLowerCase()] ?? 'other', look?.color ?? col, live)}
 <text class="t" x="${X}" y="17" font-size="13" font-weight="600">${xml(o.name)}</text>
 <rect x="${X + 100}" y="6" width="${shown.length * 6.4 + 12}" height="16" rx="8" fill="${col}"/><text x="${X + 106}" y="17.5" font-size="10" font-weight="700" fill="#fff">${xml(shown)}</text>
 <text class="s" x="${W - 6}" y="17" font-size="11" text-anchor="end">${xml(progress + etaText(o.eta))}</text>

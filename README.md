@@ -8,10 +8,13 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
 
 ## What it shows
 
-- **Efficiency**: one number (100 = your typical day, from lines per dollar and lines per hour)
-  and a verdict: improving, steady or worsening, from your last active days against the ones
-  before. A day gets its own score only after 60 active minutes or $50 (a short cheap start would swing
-  the number wildly); until then it shows a dash. Documents and media (PDF, images...) are not counted as lines. The crab raises a claw when it improves and sweats when it worsens.
+- **Efficiency**: one number (100 = your typical day) and a verdict: improving, steady or worsening, from your
+  last active days against the ones before. It is the geometric mean of weighted lines per million tokens read
+  (input + cache write + cache read, so long contexts and re-reading lower it) and weighted lines per active hour.
+  A line of code counts 1, of documentation 0.3, of data or config 0.15; PDF, images and other media are not counted.
+  A day gets its own score only after 60 active minutes or $50; until then it shows a dash. Messages that a resumed
+  or copied session file repeats are counted once. With fewer than 8 scored days the 100 is provisional: the panel
+  says how many days it comes from and gives no verdict yet. The crab raises a claw when it improves and sweats when it worsens.
 - **Last 7 days** (a proxy for the weekly allowance): cost, tokens, active time, lines, and a bar
   that splits the cost into cache read, cache write, output and input.
 - **Subagents** (live, between Last 7 days and Day by day): one card per subagent of the session,
