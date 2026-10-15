@@ -123,3 +123,21 @@ test('a template placeholder is shown as plain text', async () => {
   const toml = ['[[operator]]', 'id = "SPV"', 'name = "{supervisor}"', 'kind = "ai"'].join('\n')
   expect(parseToml(toml)[0]!.name).toBe('Supervisor')
 })
+
+test('wakeup and ack are read, and the unread rows of the Log are counted (not the operator\'s own)', async () => {
+  const log = [
+    '| Timestamp | Operatore | Branch | Azione | Messaggio |',
+    '|---|---|---|---|---|',
+    '| 2026-10-15T10:00+02:00 | SPV | `x` | `INIT` | a |',
+    '| 2026-10-15T12:00+02:00 | AGY | `x` | `REVIEW: APPROVED` | b |',
+    '| 2026-10-15T13:00+02:00 | SPV | `x` | `RULE` | c |',
+    '| 2026-10-15T14:00+02:00 | SPV | `x` | `RULE` | d |',
+  ].join('\n')
+  const f = (ack: string) => `---\nid: AGY\nstate: FREE\nwakeup: no\nack: ${ack}\nupdated: 2026-10-15T14:05+02:00\n---\n`
+  const reg = parseToml('[[operator]]\nid = "AGY"\nname = "Antigravity"\nkind = "ai"\nfile = "sync/AGY.md"\n')
+  const op = (ack: string) => parseOps(log, { AGY: f(ack) }, Date.parse('2026-10-15T15:00+02:00'), reg).ops[0]!
+  expect(op('2026-10-15T12:30+02:00').wakeup).toBe('no')
+  expect(op('2026-10-15T12:30+02:00').unread).toBe(2)
+  expect(op('2026-10-15T14:00+02:00').unread).toBe(0)
+  expect(op('').unread).toBeUndefined()
+})

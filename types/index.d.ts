@@ -44,6 +44,12 @@ export type Op = {
   detail: string
   eta: string
   waitingOn?: string
+  /** does it wake itself up (timer, scheduler)? as the operator declares it */
+  wakeup?: 'yes' | 'no'
+  /** ms since epoch of the last Log row of SYNC.md the operator confirmed reading */
+  ack?: number
+  /** Log rows of SYNC.md written by others after its ack; undefined when it declares no ack */
+  unread?: number
   /** 0-100 as the operator reports it */
   progress?: number
   /** how the state was read: its own header block, its older free text, or the table of SYNC.md */

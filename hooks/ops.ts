@@ -85,7 +85,7 @@ export const isoMs = (s: string): number | undefined => {
   return m ? new Date(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!).getTime() : undefined
 }
 
-type FileInfo = { source: 'block' | 'text'; state: OpState; task: string; waitingOn: string; progress?: number; eta: string; updated?: number }
+type FileInfo = { source: 'block' | 'text'; state: OpState; task: string; waitingOn: string; progress?: number; eta: string; updated?: number; wakeup?: 'yes' | 'no'; ack?: number }
 export const parseFile = (text: string): FileInfo | null => {
   const b = parseBlock(text)
   if (b && b.state) {
@@ -99,6 +99,8 @@ export const parseFile = (text: string): FileInfo | null => {
       progress: b.progress && Number.isFinite(pr) ? Math.max(0, Math.min(100, pr)) : undefined,
       eta: b.eta ?? '',
       updated: b.updated ? isoMs(b.updated) : undefined,
+      wakeup: b.wakeup === 'yes' || b.wakeup === 'no' ? b.wakeup : undefined,
+      ack: b.ack ? isoMs(b.ack) : undefined,
     }
   }
   const up = /^\**Ultimo aggiornamento:?\**:?\s*([^\n]+)/m.exec(text)
@@ -106,6 +108,18 @@ export const parseFile = (text: string): FileInfo | null => {
   if (!up && !st) return null
   const [state, task] = st ? stateOf(st[1]!) : (['?', ''] as [OpState, string])
   return { source: 'text', state, task, waitingOn: '', eta: '', updated: up ? isoMs(up[1]!) : undefined }
+}
+
+/** The Log of SYNC.md: one row per line `| time | who | ... |`, the time as ISO 8601 (a date with no time is skipped). */
+export const logRows = (sync: string): { at: number; by: string }[] => {
+  const out: { at: number; by: string }[] = []
+  for (const l of sync.split('\n')) {
+    const c = l.split('|').map(x => x.trim())
+    if (c.length < 6 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(c[1] ?? '')) continue
+    const at = isoMs(c[1]!)
+    if (at !== undefined) out.push({ at, by: c[2] ?? '' })
+  }
+  return out
 }
 
 // Repos without a registry: the names of the table rows are mapped to the files by hand.
@@ -119,6 +133,7 @@ export const parseOps = (sync: string, files: Record<string, string>, now: numbe
     const [state, task] = stateOf(c[2] ?? '')
     rows.set(c[1]!.replace(/\*/g, '').toLowerCase(), { state, task, detail: (c[3] ?? '').replace(/`/g, ''), eta: c[4] ?? '' })
   }
+  const log = logRows(sync)
   const list: { id?: string; name: string }[] = reg?.length
     ? reg.filter(r => r.kind !== 'human').map(r => ({ id: r.id, name: r.name }))
     : [...rows.keys()].filter(n => n !== 'utente').map(n => ({ id: NAME_FILE[n], name: n.replace(/\b\w/g, ch => ch.toUpperCase()) }))
@@ -131,7 +146,8 @@ export const parseOps = (sync: string, files: Record<string, string>, now: numbe
       op.fileState = fi.state
       op.fileTask = fi.task
       if (fi.source === 'block') {
-        Object.assign(op, { source: 'block', state: fi.state, task: fi.task, waitingOn: fi.waitingOn || undefined, progress: fi.progress, eta: fi.eta || op.eta, detail: '' })
+        Object.assign(op, { source: 'block', state: fi.state, task: fi.task, waitingOn: fi.waitingOn || undefined, progress: fi.progress, eta: fi.eta || op.eta, detail: '', wakeup: fi.wakeup, ack: fi.ack })
+        if (fi.ack !== undefined && id) op.unread = log.filter(r => r.by.toLowerCase() !== id.toLowerCase() && r.at > fi.ack!).length
       } else {
         op.source = 'text'
         op.clash = !!row && fi.state !== row.state && !(fi.state === 'FREE' && row.state === 'DONE')
@@ -255,7 +271,7 @@ const etaText = (eta: string) => {
   return `ETA ${v !== undefined ? hhmm(v) : eta}`
 }
 
-export const OP_H = 80
+export const OP_H = 92
 export const opSvg = (W: number, o: Op, now: number): string => {
   const col = stateColor(o)
   const live = o.state === 'WORKING' && !o.silent
@@ -276,6 +292,11 @@ export const opSvg = (W: number, o: Op, now: number): string => {
         ? `${ago(now - etaMs(o.eta)!).replace(' ago', '')} past its ETA: counts as IDLE (rule: ETA + ${ETA_GRACE_MIN} min)`
         : `no update for ${ago(age ?? 0).replace(' ago', '')}: counts as IDLE (rule: ${OPS_SILENT_MIN} min)`
       : ''
+  // how it is reachable: does it wake itself up, and how much of the Log of SYNC.md has it read
+  const read =
+    o.source !== 'block' ? '' : o.ack === undefined ? '<tspan fill="#E0A030">never read</tspan>' : o.unread ? `<tspan fill="#E0A030">${o.unread} unread</tspan>` : '<tspan fill="#3B9C5F">read ✓</tspan>'
+  const wake = o.wakeup ? `wakes itself: ${o.wakeup}` : ''
+  const badges = o.source === 'block' ? `<text class="m" x="${X}" y="86" font-size="10">${[wake, read].filter(Boolean).join(' · ')}</text>` : ''
   const progress = o.progress !== undefined ? `${o.progress}% · ` : ''
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${OP_H}" viewBox="0 0 ${W} ${OP_H}" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${CSS}
 ${crab(0, 16, COSTUME[(o.id ?? o.name).toLowerCase()] ?? COSTUME[o.name.toLowerCase()] ?? 'other', col, live)}
@@ -286,6 +307,7 @@ ${crab(0, 16, COSTUME[(o.id ?? o.name).toLowerCase()] ?? COSTUME[o.name.toLowerC
 <text class="s" x="${X}" y="46" font-size="10.5">${xml(fit(lines[1] ?? '', Math.floor(BW / 5.4)))}</text>
 <rect class="k" x="${X}" y="54" width="${BW}" height="5" rx="2.5"/>${age === undefined ? '' : `<rect x="${X}" y="54" width="${Math.max(3, fresh * BW)}" height="5" rx="2.5" fill="${freshCol}"/>`}
 <text class="m" x="${X}" y="72" font-size="10">${age === undefined ? 'no file of its own: freshness not tracked' : `last update ${xml(hhmm(o.updated!))} · ${xml(ago(age))}`}${o.source === 'text' ? ' · old format' : ''}</text>
+${badges}
 ${warn ? `<text x="${W - 6}" y="72" font-size="10" text-anchor="end" fill="${o.silent ? RED : AMBER}">${xml(fit('⚠ ' + warn, Math.floor((BW - 120) / 5.3)))}</text>` : ''}
 </svg>`
 }
