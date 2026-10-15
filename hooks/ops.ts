@@ -7,10 +7,29 @@ export type { Op, OpState, Team }
 
 export type Reg = { id: string; name: string; kind: string; file: string; ledger: string; branches: string[]; cost: string }
 export const OPS_SILENT_MIN = 60
+/** past its ETA by this much, an operator in WORKING or WAITING counts as IDLE (with no ETA: no update for OPS_SILENT_MIN) */
+export const ETA_GRACE_MIN = 10
+
+/** The ETA as an instant, when it is written as an ISO time. */
+const etaMs = (eta: string): number | undefined => (/\dT\d/.test(eta) ? isoMs(eta) : undefined)
+
+/** WORKING or WAITING and past the ETA + 10 minutes, or (no ISO ETA) silent for 60 minutes. FREE and DONE are never silent. */
+export const isSilent = (o: Op, now: number): boolean => {
+  if (o.state !== 'WORKING' && o.state !== 'WAITING') return false
+  const e = etaMs(o.eta)
+  if (e !== undefined) return now > e + ETA_GRACE_MIN * 60_000
+  return o.updated !== undefined && now - o.updated > OPS_SILENT_MIN * 60_000
+}
 
 const stateOf = (s: string): [OpState, string] => {
   const m = /^`?\s*(DONE|WORKING|WAITING|IDLE|FREE)\b\s*(.*?)`?$/.exec(s.trim())
   return m ? [m[1] as OpState, (m[2] ?? '').replace(/`+$/, '').trim()] : ['?', s.trim()]
+}
+
+/** A template placeholder such as `{supervisor}` is shown as plain text: `Supervisor`. */
+export const plain = (s: string): string => {
+  const m = /^\{\s*(.+?)\s*\}$/.exec(s.trim())
+  return m ? m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1) : s
 }
 
 // The few TOML forms the registry uses: [[operator]] blocks of `key = "string"` and `key = ["a", "b"]`; # comments.
@@ -33,7 +52,7 @@ export const parseToml = (text: string): Reg[] => {
   return out
     .map(r => ({
       id: String(r.id ?? ''),
-      name: String(r.name ?? r.id ?? ''),
+      name: plain(String(r.name ?? r.id ?? '')),
       kind: String(r.kind ?? 'ai'),
       file: String(r.file ?? ''),
       ledger: String(r.ledger ?? ''),
@@ -118,7 +137,7 @@ export const parseOps = (sync: string, files: Record<string, string>, now: numbe
         op.clash = !!row && fi.state !== row.state && !(fi.state === 'FREE' && row.state === 'DONE')
         if (!row) Object.assign(op, { state: fi.state, task: fi.task })
       }
-      op.silent = op.updated !== undefined && now - op.updated > OPS_SILENT_MIN * 60_000 && (op.state === 'WORKING' || fi.state === 'WORKING')
+      op.silent = isSilent(op, now)
     }
     return op
   })
@@ -253,7 +272,9 @@ export const opSvg = (W: number, o: Op, now: number): string => {
   const warn = o.clash
     ? `table says ${o.state}, its own file says ${o.fileState}${o.fileTask ? ' ' + o.fileTask : ''}`
     : o.silent
-      ? `no update for ${ago(age ?? 0).replace(' ago', '')}: counts as IDLE (rule: ${OPS_SILENT_MIN} min)`
+      ? etaMs(o.eta) !== undefined
+        ? `${ago(now - etaMs(o.eta)!).replace(' ago', '')} past its ETA: counts as IDLE (rule: ETA + ${ETA_GRACE_MIN} min)`
+        : `no update for ${ago(age ?? 0).replace(' ago', '')}: counts as IDLE (rule: ${OPS_SILENT_MIN} min)`
       : ''
   const progress = o.progress !== undefined ? `${o.progress}% · ` : ''
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${OP_H}" viewBox="0 0 ${W} ${OP_H}" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${CSS}

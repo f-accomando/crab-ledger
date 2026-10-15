@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { effOf, globRe, isoMs, parseBlock, parseFile, parseOps, parseToml, workMinutes } from '../hooks/ops'
+import { effOf, globRe, isoMs, parseBlock, parseFile, parseOps, parseToml, plain, workMinutes } from '../hooks/ops'
 
 const SYNC = `| Agente | Stato | Dettaglio | ETA |
 |---|---|---|---|
@@ -101,4 +101,25 @@ test('efficiency: writers by lines per hour, the others by tasks per hour, 100 =
   expect(effOf(team, 'SPV', day(14))).toBe(200)
   // the day under 200 lines is not a writer day: only one such day, no baseline
   expect(effOf(team, 'SPV', day(15))).toBe(0)
+})
+
+test('with an ETA, IDLE starts 10 minutes after it; FREE and DONE are never silent', async () => {
+  const mk = (state: string, eta: string, updated: string) => `---\nid: SPV\nstate: ${state}\ntask: x\neta: ${eta}\nupdated: ${updated}\n---\n`
+  const reg = parseToml('[[operator]]\nid = "SPV"\nname = "Claude local"\nkind = "ai"\nfile = "sync/SPV.md"\n')
+  const at = (iso: string) => Date.parse(iso)
+  const silent = (state: string, eta: string, upd: string, now: string) => parseOps('', { SPV: mk(state, eta, upd) }, at(now), reg).ops[0]!.silent
+  expect(silent('WORKING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:09+02:00')).toBe(false)
+  expect(silent('WORKING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:11+02:00')).toBe(true)
+  expect(silent('WAITING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:11+02:00')).toBe(true)
+  expect(silent('FREE', '', '2026-10-15T08:00+02:00', '2026-10-15T20:00+02:00')).toBe(false)
+  expect(silent('DONE', '', '2026-10-15T08:00+02:00', '2026-10-15T20:00+02:00')).toBe(false)
+  expect(silent('WORKING', '', '2026-10-15T10:00+02:00', '2026-10-15T11:10+02:00')).toBe(true)
+})
+
+test('a template placeholder is shown as plain text', async () => {
+  expect(plain('{supervisor}')).toBe('Supervisor')
+  expect(plain('{da handshake}')).toBe('Da handshake')
+  expect(plain('Claude local')).toBe('Claude local')
+  const toml = ['[[operator]]', 'id = "SPV"', 'name = "{supervisor}"', 'kind = "ai"'].join('\n')
+  expect(parseToml(toml)[0]!.name).toBe('Supervisor')
 })

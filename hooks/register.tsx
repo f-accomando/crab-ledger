@@ -39,10 +39,10 @@ const stateAt = new Map<string, OpState>()
 const NOT_CODE = /\.(pdf|png|jpe?g|gif|webp|ico|bmp|mp4|mov|mp3|ogg|wav|zip|gz|7z|woff2?|ttf|bin|img|glb)$/i
 const DAYS_BACK = 7
 
-async function readTeam(git: (a: string[], t?: number) => Promise<string | null>, reg: Reg[], sync: string, at: number): Promise<Team | null> {
+async function readTeam(git: (a: string[], t?: number) => Promise<string | null>, reg: Reg[], sync: string, at: number, ref: string): Promise<Team | null> {
   const ai = reg.filter(r => r.kind !== 'human')
   const heads = (await git(['for-each-ref', '--format=%(objectname) %(refname:short)', 'refs/remotes/origin'])) ?? ''
-  const key = `${heads}|${localDay(at)}`
+  const key = `${heads}|${localDay(at)}|${ref}`
   if (key === teamKey) return teamCache
   teamKey = key
   const names = heads.split('\n').map(l => l.split(' ')[1] ?? '').filter(Boolean).map(n => n.replace(/^origin\//, ''))
@@ -82,7 +82,7 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   const work: Team['work'] = {}
   for (const o of ai) {
     if (!o.file) continue
-    const log = ((await git(['log', since, '--format=%H|%aI', '--reverse', 'origin/HEAD', '--', o.file])) ?? '').split('\n').filter(Boolean).slice(-120)
+    const log = ((await git(['log', since, '--format=%H|%aI', '--reverse', ref, '--', o.file])) ?? '').split('\n').filter(Boolean).slice(-120)
     const versions: { at: number; state: OpState }[] = []
     for (const l of log) {
       const [h, d] = l.split('|')
@@ -99,7 +99,7 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   // tasks closed: the operator's .ledger.jsonl, else the Log of SYNC.md (DONE / READY rows whose author names it)
   const tasks: Team['tasks'] = {}
   for (const o of ai) {
-    const jl = o.ledger ? await git(['show', `origin/HEAD:${o.ledger}`]) : null
+    const jl = o.ledger ? await git(['show', `${ref}:${o.ledger}`]) : null
     if (jl) {
       for (const l of jl.split('\n')) {
         try {
@@ -131,7 +131,7 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   return teamCache
 }
 
-async function refreshOps($: any) {
+async function refreshOps($: any, syncBranch: string) {
   if (opsBusy) return
   opsBusy = true
   try {
@@ -146,17 +146,29 @@ async function refreshOps($: any) {
       lastFetch = at
       await git(['fetch', '-q', 'origin'], 40000)
     }
-    const toml = await git(['show', 'origin/HEAD:sync/operators.toml'])
+    // the branch that holds the sync: the one named in the settings, else the most recently updated origin/sync/* that has a registry, else the default branch
+    let ref = 'origin/HEAD'
+    if (syncBranch && syncBranch !== 'auto') ref = syncBranch.startsWith('origin/') ? syncBranch : `origin/${syncBranch}`
+    else {
+      const cands = ((await git(['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/remotes/origin/sync/'])) ?? '').split('\n').filter(Boolean)
+      for (const c of cands) {
+        if ((await git(['cat-file', '-e', `${c}:sync/operators.toml`])) !== null) {
+          ref = c
+          break
+        }
+      }
+    }
+    const toml = await git(['show', `${ref}:sync/operators.toml`])
     const reg = toml ? parseToml(toml) : []
-    const sync = (await git(['show', 'origin/HEAD:SYNC.md'])) ?? ''
+    const sync = (await git(['show', `${ref}:SYNC.md`])) ?? ''
     if (!sync && !reg.length) return void (await update($, opsAtom, () => none))
     const files: Record<string, string> = {}
     const wanted = reg.length ? reg.filter(r => r.file).map(r => [r.id, r.file] as const) : (['SPV', 'CLD', 'AGY'] as const).map(n => [n, `sync/${n}.md`] as const)
     for (const [id, f] of wanted) {
-      const t = await git(['show', `origin/HEAD:${f}`])
+      const t = await git(['show', `${ref}:${f}`])
       if (t !== null) files[id] = t
     }
-    const parsed = { ...parseOps(sync, files, at, reg), team: reg.length ? await readTeam(git, reg, sync, at) : null }
+    const parsed = { ...parseOps(sync, files, at, reg), team: reg.length ? await readTeam(git, reg, sync, at, ref) : null }
     await update($, opsAtom, () => parsed)
   } catch {
     /* no repo, no network: the section stays as it was */
@@ -197,6 +209,7 @@ async function refresh($: any) {
 export const register: Register = (on, options) => {
   const wantSubagents = options?.showSubagents !== false
   const wantOperators = options?.showOperators !== false
+  const syncBranch = String(options?.syncBranch ?? 'auto')
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ledger',
@@ -204,10 +217,10 @@ export const register: Register = (on, options) => {
     })
     void $.ui.open({ id: PANE, title: 'Crab ledger' })
     void refresh($)
-    if (wantOperators) void refreshOps($)
+    if (wantOperators) void refreshOps($, syncBranch)
     $.clock.every(90_000, () => {
       void refresh($)
-      if (wantOperators) void refreshOps($)
+      if (wantOperators) void refreshOps($, syncBranch)
     })
     $.clock.every(2_000, async () => {
       if ((await read($, live)).some(a => a.status === 'running')) {
@@ -221,7 +234,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     void refresh($)
-    if (!e.agentId && wantOperators) void refreshOps($)
+    if (!e.agentId && wantOperators) void refreshOps($, syncBranch)
     if (e.agentId) {
       const at = await $.clock.now()
       await update($, live, list => list.map(a => (a.id !== e.agentId ? a : { ...a, status: e.reason === 'answer' ? 'done' : 'failed', end: at })))

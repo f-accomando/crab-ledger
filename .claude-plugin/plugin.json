@@ -1,6 +1,6 @@
 {
   "name": "crab-ledger",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "Side pane: daily tokens, minutes, git lines, cost estimate, efficiency trend, most re-read files and what to optimize, subagents included. Animated pixel crab.",
   "author": {
     "name": "Francesco Accomando"
@@ -20,6 +20,12 @@
       "title": "Show operators",
       "description": "Operators sections: read sync/operators.toml, sync/<ID>.md and SYNC.md of the repo from its remote branch (git fetch every 5 minutes). Only appear when the repo has them.",
       "default": true
+    },
+    "syncBranch": {
+      "type": "string",
+      "title": "Sync branch",
+      "description": "Branch that holds SYNC.md and sync/ (for example sync/my-project). \"auto\" picks the most recently updated origin/sync/* branch that has a sync/operators.toml, and falls back to the default branch.",
+      "default": "auto"
     }
   }
 }
