@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { LiveAgent, Op, OpState, Report, Team } from '../types'
-import { OP_H, WRITER_LINES, effOf, globRe, looksOf, localDay, opSvg, parseFile, parseOps, parseToml, stateColor, teamHeight, teamSvg, workMinutes } from './ops'
+import { OP_H, WRITER_LINES, effOf, globRe, ledgerRows, looksOf, localDay, opSvg, parseFile, parseOps, parseToml, stateColor, teamHeight, teamSvg, workMinutes } from './ops'
 import type { Reg } from './ops'
 import { CRAB_H, CRAB_W, LIVE_H, costOf, crabSvg, famOf, leftText, liveSvg, stats, typical } from './live'
 import { agentsHeight, agentsSvg, daysSvg, dur, headerSvg, moodOf, num, repeatedSvg, rereadSvg, usd, weekSvg } from './draw'
@@ -98,17 +98,21 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   }
   // tasks closed: the operator's .ledger.jsonl, else the Log of SYNC.md (DONE / READY rows whose author names it)
   const tasks: Team['tasks'] = {}
+  const led: Team['led'] = {}
   for (const o of ai) {
-    const jl = o.ledger ? await git(['show', `${ref}:${o.ledger}`]) : null
-    if (jl) {
-      for (const l of jl.split('\n')) {
-        try {
-          const j = JSON.parse(l)
-          if (j.t !== 'task' || j.status !== 'done' || !j.at) continue
-          const k = `${localDay(Date.parse(j.at))}|${o.id}`
-          tasks[k] = (tasks[k] ?? 0) + 1
-        } catch {
-          /* a broken line is skipped */
+    // the registry names the ledger; an operator that closes work orders has sync/<ID>.ledger.jsonl even when the registry says nothing
+    const jl = await git(['show', `${ref}:${o.ledger || `sync/${o.id}.ledger.jsonl`}`])
+    const rows = jl ? ledgerRows(jl) : []
+    if (rows.length) {
+      for (const r of rows) {
+        const k = `${r.day}|${o.id}`
+        tasks[k] = (tasks[k] ?? 0) + 1
+        if (r.wo) {
+          const c = (led[k] ??= { n: 0, tok: 0, min: 0, lw: 0 })
+          c.n++
+          c.tok += r.tok
+          c.min += r.min
+          c.lw += r.lw
         }
       }
       continue
@@ -127,7 +131,7 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   for (const k of [...Object.keys(lines), ...Object.keys(work)]) dayset.add(k.split('|')[0]!)
   const days = [...dayset].sort().slice(-3) // oldest first, the latest day at the bottom, as in Day by day
   const all = [...new Set(Object.keys(work).map(k => k.split('|')[0]!))]
-  teamCache = days.length ? { ops: ai.map(o => ({ id: o.id, name: o.name })), days, lines, work, tasks, all } : null
+  teamCache = days.length ? { ops: ai.map(o => ({ id: o.id, name: o.name })), days, lines, work, tasks, led, all } : null
   return teamCache
 }
 

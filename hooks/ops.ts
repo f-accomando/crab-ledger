@@ -223,6 +223,25 @@ export const workMinutes = (versions: { at: number; state: OpState }[], now: num
   return out
 }
 
+/** One row of an operator's ledger. Schema 1 (a closed work order: wo, iso, tokens, min, lines, add, del) or the older task row (t: task, status: done, at). */
+export type LedgerRow = { day: string; tok: number; min: number; lw: number; wo: boolean }
+export const ledgerRows = (jsonl: string): LedgerRow[] => {
+  const out: LedgerRow[] = []
+  for (const l of jsonl.split(/\r?\n/)) {
+    try {
+      const j = JSON.parse(l)
+      if (j.wo && j.iso && !Number.isNaN(Date.parse(j.iso))) {
+        const k = j.lines ?? {}
+        const lw = k.code !== undefined || k.docs !== undefined || k.data !== undefined ? (k.code ?? 0) + 0.3 * (k.docs ?? 0) + 0.15 * (k.data ?? 0) : (j.add ?? 0) + (j.del ?? 0)
+        out.push({ day: localDay(Date.parse(j.iso)), tok: +j.tokens || 0, min: +j.min || 0, lw, wo: true })
+      } else if (j.t === 'task' && j.status === 'done' && j.at) out.push({ day: localDay(Date.parse(j.at)), tok: 0, min: 0, lw: 0, wo: false })
+    } catch {
+      /* a broken line is skipped */
+    }
+  }
+  return out
+}
+
 const isWriter = (t: Team, id: string, d: string) => {
   const l = t.lines[`${d}|${id}`] ?? [0, 0]
   return l[0] + l[1] >= WRITER_LINES
@@ -272,9 +291,11 @@ export const teamSvg = (W: number, t: Team, looks: Record<string, Look> = {}): s
           if (!(t.work[`${d}|${o.id}`] ?? 0) && a + b === 0) return `<tspan fill="${c}">${id}</tspan> –`
           const e = effOf(t, o.id, d)
           const eff = e > 0 ? e : '–'
+          const lg = t.led[`${d}|${o.id}`]
+          const lpm = lg && lg.tok > 0 && lg.lw > 0 ? ` ${kk(Math.round(lg.lw / (lg.tok / 1e6)))} l/Mtok` : ''
           return isWriter(t, o.id, d)
-            ? `<tspan fill="${c}">${id}</tspan> +${kk(a)}/−${b} eff ${eff}`
-            : `<tspan fill="${c}">${id}</tspan> <tspan fill="${BLUE}">${t.tasks[`${d}|${o.id}`] ?? 0} tasks eff ${eff}</tspan>`
+            ? `<tspan fill="${c}">${id}</tspan> +${kk(a)}/−${b} eff ${eff}${lpm}`
+            : `<tspan fill="${c}">${id}</tspan> <tspan fill="${BLUE}">${t.tasks[`${d}|${o.id}`] ?? 0} tasks eff ${eff}${lpm}</tspan>`
         })
         .join(' · ')
       return `<text class="s" x="6" y="${y + 11}" font-size="11">${da}/${mo}</text><rect class="k" x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/><clipPath id="tm${i}"><rect x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/></clipPath><g clip-path="url(#tm${i})">${segs}</g><text class="m" x="${BX}" y="${y + 26}" font-size="10">${list} · ${kk(total)} lines</text>`

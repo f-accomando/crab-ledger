@@ -76,6 +76,8 @@ export type Team = {
   work: Record<string, number>
   /** "YYYY-MM-DD|ID" -> tasks closed */
   tasks: Record<string, number>
+  /** "YYYY-MM-DD|ID" -> what the operator declared when closing work orders (ledger schema 1): tokens, minutes, weighted lines */
+  led: Record<string, { n: number; tok: number; min: number; lw: number }>
   /** every day with tracked time, for the baseline of the efficiency */
   all: string[]
 }

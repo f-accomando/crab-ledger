@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { effOf, globRe, isoMs, looksOf, parseBlock, parseFile, parseOps, parseToml, plain, workMinutes } from '../hooks/ops'
+import { effOf, globRe, isoMs, ledgerRows, looksOf, parseBlock, parseFile, parseOps, parseToml, plain, workMinutes } from '../hooks/ops'
 
 const SYNC = `| Agente | Stato | Dettaglio | ETA |
 |---|---|---|---|
@@ -148,4 +148,19 @@ test('every operator gets its own costume and color, the same one every time', a
   expect(new Set(ids.map(i => a[i]!.costume)).size).toBe(ids.length)
   expect(new Set(ids.map(i => a[i]!.color)).size).toBe(ids.length)
   expect(looksOf(ids)).toEqual(a)
+})
+
+test('the ledger of closed work orders is read: weighted lines, tokens, minutes; old task rows still count; a broken line is skipped', async () => {
+  const jl = [
+    JSON.stringify({ schema: 1, wo: 'AGY-10', iso: '2026-10-16T10:12+02:00', add: 167, del: 81, lines: { code: 200, docs: 40, data: 8 }, tokens: 16200, min: 31 }),
+    'not json',
+    JSON.stringify({ schema: 1, wo: 'AGY-11', iso: '2026-10-16T11:00+02:00', add: 10, del: 0, tokens: 1000, min: 5 }),
+    JSON.stringify({ t: 'task', status: 'done', at: '2026-10-16T12:00+02:00' }),
+  ].join(String.fromCharCode(10))
+  const rows = ledgerRows(jl)
+  expect(rows.length).toBe(3)
+  expect(Math.round(rows[0]!.lw * 10)).toBe(2132)
+  expect(rows[0]!.tok).toBe(16200)
+  expect(rows[1]!.lw).toBe(10)
+  expect(rows[2]!.wo).toBe(false)
 })
