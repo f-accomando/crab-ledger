@@ -101,13 +101,23 @@ async function readTeam(git: (a: string[], t?: number) => Promise<string | null>
   const led: Team['led'] = {}
   for (const o of ai) {
     // the registry names the ledger; an operator that closes work orders has sync/<ID>.ledger.jsonl even when the registry says nothing
-    const jl = await git(['show', `${ref}:${o.ledger || `sync/${o.id}.ledger.jsonl`}`])
-    const rows = jl ? ledgerRows(jl) : []
+    // sync_hdr.py --close writes sync/OP-<ID>.ledger.jsonl; older setups have sync/<ID>.ledger.jsonl
+    let rows: ReturnType<typeof ledgerRows> = []
+    for (const p of [o.ledger, `sync/OP-${o.id}.ledger.jsonl`, `sync/${o.id}.ledger.jsonl`]) {
+      const jl = p ? await git(['show', `${ref}:${p}`]) : null
+      if (jl && (rows = ledgerRows(jl)).length) break
+    }
     if (rows.length) {
       for (const r of rows) {
         const k = `${r.day}|${o.id}`
         tasks[k] = (tasks[k] ?? 0) + 1
         if (r.wo) {
+          // no commits seen on the operator's branches (none registered, or merged already): the diff it declared stands in for them
+          if (!refsOf[o.id]!.length) {
+            const cell = (lines[k] ??= [0, 0])
+            cell[0] += r.add
+            cell[1] += r.del
+          }
           const c = (led[k] ??= { n: 0, tok: 0, min: 0, lw: 0 })
           c.n++
           c.tok += r.tok
@@ -164,6 +174,19 @@ async function refreshOps($: any, syncBranch: string) {
     }
     const toml = await git(['show', `${ref}:sync/operators.toml`])
     const reg = toml ? parseToml(toml) : []
+    // an operator with a status file but no registry block yet (SPV has not added it) still takes part: its file and ledger are read
+    if (reg.length) {
+      const known = new Set(reg.map(r => r.id.toUpperCase()))
+      const tree = ((await git(['ls-tree', '--name-only', ref, 'sync/'])) ?? '').split('\n')
+      for (const p of tree) {
+        const id = /^sync\/([A-Za-z0-9-]{2,12})\.md$/.exec(p.trim())?.[1]
+        if (!id || id.startsWith('_') || known.has(id.toUpperCase())) continue
+        const txt = await git(['show', `${ref}:${p.trim()}`])
+        if (!txt || parseFile(txt)?.source !== 'block') continue
+        known.add(id.toUpperCase())
+        reg.push({ id, name: id, kind: 'ai', file: p.trim(), ledger: '', branches: [], cost: '' })
+      }
+    }
     const sync = (await git(['show', `${ref}:SYNC.md`])) ?? ''
     if (!sync && !reg.length) return void (await update($, opsAtom, () => none))
     const files: Record<string, string> = {}

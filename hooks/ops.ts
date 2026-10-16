@@ -224,7 +224,7 @@ export const workMinutes = (versions: { at: number; state: OpState }[], now: num
 }
 
 /** One row of an operator's ledger. Schema 1 (a closed work order: wo, iso, tokens, min, lines, add, del) or the older task row (t: task, status: done, at). */
-export type LedgerRow = { day: string; tok: number; min: number; lw: number; wo: boolean }
+export type LedgerRow = { day: string; tok: number; min: number; lw: number; add: number; del: number; wo: boolean }
 export const ledgerRows = (jsonl: string): LedgerRow[] => {
   const out: LedgerRow[] = []
   for (const l of jsonl.split(/\r?\n/)) {
@@ -233,8 +233,8 @@ export const ledgerRows = (jsonl: string): LedgerRow[] => {
       if (j.wo && j.iso && !Number.isNaN(Date.parse(j.iso))) {
         const k = j.lines ?? {}
         const lw = k.code !== undefined || k.docs !== undefined || k.data !== undefined ? (k.code ?? 0) + 0.3 * (k.docs ?? 0) + 0.15 * (k.data ?? 0) : (j.add ?? 0) + (j.del ?? 0)
-        out.push({ day: localDay(Date.parse(j.iso)), tok: +j.tokens || 0, min: +j.min || 0, lw, wo: true })
-      } else if (j.t === 'task' && j.status === 'done' && j.at) out.push({ day: localDay(Date.parse(j.at)), tok: 0, min: 0, lw: 0, wo: false })
+        out.push({ day: localDay(Date.parse(j.iso)), tok: +j.tokens || 0, min: +j.min || 0, lw, add: +j.add || 0, del: +j.del || 0, wo: true })
+      } else if (j.t === 'task' && j.status === 'done' && j.at) out.push({ day: localDay(Date.parse(j.at)), tok: 0, min: 0, lw: 0, add: 0, del: 0, wo: false })
     } catch {
       /* a broken line is skipped */
     }
