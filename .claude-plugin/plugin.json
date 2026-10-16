@@ -1,6 +1,6 @@
 {
   "name": "crab-ledger",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "Side pane: daily tokens, minutes, git lines, cost estimate, efficiency trend, most re-read files and what to optimize, subagents included. Animated pixel crab.",
   "author": {
     "name": "Francesco Accomando"
@@ -26,6 +26,12 @@
       "title": "Sync branch",
       "description": "Branch that holds SYNC.md and sync/ (for example sync/my-project). \"auto\" picks the most recently updated origin/sync/* branch that has a sync/operators.toml, and falls back to the default branch.",
       "default": "auto"
+    },
+    "autoCloseSeconds": {
+      "type": "number",
+      "title": "Close finished subagent cards after (seconds)",
+      "description": "A subagent card that is done or failed closes by itself this many seconds after it ended. 0 keeps cards until you press close.",
+      "default": 60
     }
   }
 }

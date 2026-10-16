@@ -237,6 +237,7 @@ export const register: Register = (on, options) => {
   const wantSubagents = options?.showSubagents !== false
   const wantOperators = options?.showOperators !== false
   const syncBranch = String(options?.syncBranch ?? 'auto')
+  const autoClose = Math.max(0, Number(options?.autoCloseSeconds ?? 60) || 0) * 1000
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ledger',
@@ -249,11 +250,14 @@ export const register: Register = (on, options) => {
       void refresh($)
       if (wantOperators) void refreshOps($, syncBranch)
     })
-    $.clock.every(2_000, async () => {
-      if ((await read($, live)).some(a => a.status === 'running')) {
-        const at = await $.clock.now()
-        await update($, nowAt, () => at)
+    $.clock.every(5_000, async () => {
+      const list = await read($, live)
+      const at = await $.clock.now()
+      // a finished card closes by itself after autoClose ms (0 = never)
+      if (autoClose && list.some(a => a.status !== 'running' && a.end !== undefined && at - a.end >= autoClose)) {
+        await update($, live, l => l.filter(a => a.status === 'running' || a.end === undefined || at - a.end < autoClose))
       }
+      if (list.some(a => a.status === 'running')) await update($, nowAt, () => at)
     })
 
     return next(e)
