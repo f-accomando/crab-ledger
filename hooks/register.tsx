@@ -367,7 +367,7 @@ export const register: Register = (on, options) => {
                 {team.ops.map(o => {
                   const l = team.lines[`${d}|${o.id}`] ?? [0, 0]
                   const e = effOf(team, o.id, d)
-                  return `${o.id.toLowerCase()} ${l[0] + l[1] >= WRITER_LINES ? `+${l[0]}/−${l[1]}` : `${team.tasks[`${d}|${o.id}`] ?? 0} tasks`} eff ${e > 0 ? e : '–'} · `
+                  return `${o.id.toLowerCase()} ${l[0] + l[1] >= WRITER_LINES ? `+${l[0]}/−${l[1]} ` : ''}eff ${e > 0 ? e : '–'} · `
                 })}
                 {num(team.ops.reduce((n, o) => n + (team.lines[`${d}|${o.id}`]?.[0] ?? 0) + (team.lines[`${d}|${o.id}`]?.[1] ?? 0), 0))} lines
               </Text>

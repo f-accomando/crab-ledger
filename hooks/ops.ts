@@ -263,7 +263,7 @@ export const effOf = (t: Team, id: string, d: string): number => {
 }
 
 const kk = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
-export const TEAM_RH = 34
+export const TEAM_RH = 30
 export const teamHeight = (t: Team) => 10 + t.days.length * TEAM_RH
 export const teamSvg = (W: number, t: Team, looks: Record<string, Look> = {}): string => {
   const BX = 46
@@ -295,7 +295,7 @@ export const teamSvg = (W: number, t: Team, looks: Record<string, Look> = {}): s
           const lpm = lg && lg.tok > 0 && lg.lw > 0 ? ` ${kk(Math.round(lg.lw / (lg.tok / 1e6)))} l/Mtok` : ''
           return isWriter(t, o.id, d)
             ? `<tspan fill="${c}">${id}</tspan> +${kk(a)}/−${b} eff ${eff}${lpm}`
-            : `<tspan fill="${c}">${id}</tspan> <tspan fill="${BLUE}">${t.tasks[`${d}|${o.id}`] ?? 0} tasks eff ${eff}${lpm}</tspan>`
+            : `<tspan fill="${c}">${id}</tspan> <tspan fill="${BLUE}">eff ${eff}${lpm}</tspan>`
         })
         .join(' · ')
       return `<text class="s" x="6" y="${y + 11}" font-size="11">${da}/${mo}</text><rect class="k" x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/><clipPath id="tm${i}"><rect x="${BX}" y="${y}" width="${BW}" height="13" rx="6.5"/></clipPath><g clip-path="url(#tm${i})">${segs}</g><text class="m" x="${BX}" y="${y + 26}" font-size="10">${list} · ${kk(total)} lines</text>`
