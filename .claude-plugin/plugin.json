@@ -1,6 +1,6 @@
 {
   "name": "crab-ledger",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "description": "Side pane: daily tokens, minutes, git lines, cost estimate, efficiency trend, most re-read files and what to optimize, subagents included. Animated pixel crab.",
   "author": {
     "name": "Francesco Accomando"

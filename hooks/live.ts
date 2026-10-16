@@ -62,6 +62,14 @@ const body = (f: Fill, arm = 0) => {
   f(9, 12, 2, 2, INK); f(19, 12, 2, 2, INK)
   f(7, 22, 2, 4, CLAY, 'la'); f(17, 22, 2, 4, CLAY, 'la'); f(11, 22, 2, 4, CLAY, 'lb'); f(21, 22, 2, 4, CLAY, 'lb')
 }
+const stamp = (f: Fill, x: number, y: number, rows: string[], map: Record<string, string>, cls?: string) =>
+  rows.forEach((row, dy) => [...row].forEach((ch, dx) => map[ch] && f(x + dx, y + dy, 1, 1, map[ch] ?? '', cls)))
+// a body whose raised claw can ride a prop (armCls), or stay still with the body
+const plain = (f: Fill, arm = 0, armCls = 'bd') => {
+  f(7, 10, 16, 12, CLAY); f(3, 14, 4, 4, CLAY); f(23, 14 + arm, 4, 4, CLAY, armCls)
+  f(9, 12, 2, 2, INK); f(19, 12, 2, 2, INK)
+  f(7, 22, 2, 4, CLAY, 'la'); f(17, 22, 2, 4, CLAY, 'la'); f(11, 22, 2, 4, CLAY, 'lb'); f(21, 22, 2, 4, CLAY, 'lb')
+}
 const costumes: Record<string, (f: Fill, c: string) => void> = {
   // planner: beret and a rolled plan
   planner: (f, c) => { body(f, -4); f(9, 6, 12, 3, c); f(11, 4, 8, 2, c); f(25, 4, 5, 9, '#F4E9C8', 'it'); f(26, 7, 3, 1, c, 'it') },
@@ -75,17 +83,72 @@ const costumes: Record<string, (f: Fill, c: string) => void> = {
   light: (f, c) => { body(f, -4); f(5, 6, 20, 2, '#2B2B2B'); f(9, 8, 12, 2, '#2B2B2B'); f(24, 6, 1, 6, '#F5C542'); f(24, 8, 6, 6, c, 'it'); f(25, 9, 4, 1, '#F8F6F1', 'it') },
   // deep: miner's helmet with a lamp, and a pickaxe
   deep: (f, c) => { body(f, -4); f(8, 5, 14, 4, c); f(7, 9, 16, 1, '#6B3A1E'); f(13, 2, 4, 3, '#FFE066'); f(27, 5, 1, 11, '#7A4A26', 'it'); f(23, 4, 8, 2, '#8E929A', 'it') },
+  // runner: a sweatband and a clipboard with a check mark (executes, then verifies)
+  runner: (f, c) => { body(f, -4); f(6, 6, 18, 2, c); f(24, 4, 6, 9, '#7A4A26', 'it'); f(25, 5, 4, 7, '#F8F6F1', 'it'); f(26, 3, 2, 2, '#8E929A', 'it'); f(25, 9, 1, 1, '#3FA76A', 'it'); f(26, 10, 1, 1, '#3FA76A', 'it'); f(27, 9, 1, 1, '#3FA76A', 'it'); f(28, 8, 1, 1, '#3FA76A', 'it') },
+  // ported from savvy-progress: one costume per tier, drawn with its own animations (see CSS)
+  // astronaut (fable): a glass dome, floats instead of walking
+  astronaut: (f, t) => {
+    plain(f)
+    f(6, 7, 18, 1, '#E6E8EE'); f(5, 8, 1, 14, '#E6E8EE'); f(24, 8, 1, 14, '#E6E8EE'); f(6, 22, 18, 1, '#C9CCD2')
+    f(6, 8, 18, 14, 'rgba(169,214,245,.32)'); f(8, 9, 2, 1, '#fff'); f(8, 10, 1, 2, '#fff')
+    f(14, 4, 2, 3, '#C9CCD2'); f(14, 2, 2, 2, t, 'ant'); f(13, 18, 4, 2, t)
+    f(27, 3, 1, 3, '#F5C542', 'star'); f(26, 4, 3, 1, '#F5C542', 'star')
+  },
+  // detective (heavy, tracker): a deerstalker and a sweeping magnifier
+  detective: (f, t) => {
+    plain(f, -4, 'it')
+    stamp(f, 6, 3, ['......bbbbbb......', '....bbcbbcbbbb....', '...bbbbbbbbbbbb...', '..bcbbcbbcbbcbbb..', '.bbbbbbbbbbbbbbbb.', 'dddddddddddddddddd'], { b: '#7A4A26', c: '#A0703F', d: '#5A3519' })
+    f(6, 9, 18, 1, t)
+    stamp(f, 23, 1, ['.kkk.', 'k...k', 'k...k', 'k...k', '.kkk.'], { k: '#3A3A3C' }, 'it')
+    f(24, 2, 3, 3, 'rgba(169,214,245,.7)', 'it'); f(25, 6, 1, 4, '#7A4A26', 'it'); f(24, 2, 1, 1, '#fff', 'gl')
+  },
+  // engineer (careful): a hard hat and a wrench that turns a bolt
+  engineer: (f, t) => {
+    plain(f)
+    stamp(f, 6, 4, ['.....yyyyyyyy.....', '...yyyyyhhyyyyy...', '..yyyyyyhhyyyyyy..', '..yyyyyyhhyyyyyy..', '.yyyyyyyhhyyyyyyy.', 'dddddddddddddddddd'], { y: '#F5C542', h: '#FBE08A', d: '#C99A1E' })
+    f(13, 5, 4, 2, t)
+    stamp(f, 0, 10, ['.s.s', 'sss.', '.s..', '.s..'], { s: '#8E929A' }, 'it')
+  },
+  // chef (medium): a toque, tosses the omelette
+  chef: (f, t) => {
+    plain(f, -4, 'pan')
+    stamp(f, 6, 0, ['........lll.......', '.......lllll......', '.wwwwgwwwwwwgwwwww', 'wwwwwwwwwwwwwwwwww', 'wwwwwwwwwwwwwwwwww', 'wwwwwgwwwwwggwwwww', '.wwwwgwwwwwggwwwww', '.dddbbbbbbbbbbbbb.', '.dddbbbbbbbbbbbbb.', '.dddbbbbbbbbbbbbb.'], { w: '#F4F3EE', l: '#F7F6F2', g: '#D2D1C8', b: t, d: '#B45F43' })
+    f(22, 8, 7, 2, '#4A4A48', 'pan'); f(26, 10, 1, 1, '#4A4A48', 'pan'); f(24, 7, 3, 1, '#F5B731', 'egg')
+  },
+  // racer (light): a helmet, runs at double pace with a checkered flag
+  racer: (f, t) => {
+    plain(f, -4)
+    stamp(f, 6, 5, ['....rrrrrrrrrr....', '..rrrrrrwwrrrrrr..', '.rrrrrrrwwrrrrrrr.', '.rrrrrrrwwrrrrrrr.', '.rrrrrrrwwrrrrrrr.', '.kkkkkkkkkkkkkkkkr'], { r: t, w: '#F8F6F1', k: INK })
+    f(25, 1, 1, 9, '#8E929A')
+    stamp(f, 26, 1, ['wkwk', 'kwkw', 'wkwk'], { w: '#F8F6F1', k: INK }, 'flag')
+  },
+  // pirate (Explore): a bicorn and a cutlass that fences
+  pirate: f => {
+    plain(f)
+    stamp(f, 5, 3, ['.kk..............kk.', '.kkk....kkkk....kkk.', '..kkkkkkkwwkkkkkkk..', '..kkkkkkkkkkkkkkkk..', '.gggggggggggggggggg.'], { k: '#55514C', w: '#F8F6F1', g: '#F5C542' })
+    f(7, 11, 11, 1, INK); f(18, 11, 4, 3, INK)
+    f(27, 6, 1, 9, '#C9CCD2', 'it'); f(26, 15, 3, 1, '#7A4A26', 'it')
+  },
+  // ninja (ops): a dark hood with an eye slit, a headband in the agent color, a spinning shuriken
+  ninja: (f, t) => {
+    plain(f)
+    f(7, 7, 16, 7, '#2B2B30'); f(9, 11, 12, 3, CLAY); f(9, 12, 2, 2, INK); f(19, 12, 2, 2, INK)
+    f(7, 9, 16, 1, t); f(23, 9, 3, 1, t); f(25, 10, 2, 2, t)
+    stamp(f, 25, 2, ['..s..', '.sss.', 'ss.ss', '.sss.', '..s..'], { s: '#C9CCD2' }, 'shu')
+  },
   other: f => body(f),
 }
+// the color of a tier, as in savvy-progress; the others take the color of the model
+export const TIERCOL: Record<string, string> = { astronaut: '#7F77DD', detective: '#D85A30', engineer: '#BA7517', chef: '#378ADD', racer: '#1D9E75' }
 export const costumeOf = (type: string): string => {
   const t = bare(type)
-  return /plan/.test(t) ? 'planner' : /cod/.test(t) ? 'coder' : /research|explor/.test(t) ? 'research' : /mechanic/.test(t) ? 'mechanic' : /deep|heavy|careful|fable/.test(t) ? 'deep' : /light|medium|standard/.test(t) ? 'light' : 'other'
+  return /plan/.test(t) ? 'planner' : /cod/.test(t) ? 'coder' : /research/.test(t) ? 'research' : /savvy-fable/.test(t) ? 'astronaut' : /savvy-heavy|tracker/.test(t) ? 'detective' : /savvy-careful/.test(t) ? 'engineer' : /savvy-medium|standard/.test(t) ? 'chef' : /savvy-light/.test(t) ? 'racer' : t === 'explore' ? 'pirate' : /mechanic/.test(t) ? 'mechanic' : /runner/.test(t) ? 'runner' : /(^|-)ops$/.test(t) ? 'ninja' : /deep|heavy|careful|fable/.test(t) ? 'deep' : /light|medium/.test(t) ? 'light' : 'other'
 }
 export const crab = (x: number, y: number, costume: string, color: string, running: boolean): string => {
   const g: Record<string, string[]> = { bd: [], la: [], lb: [], it: [] }
   const f: Fill = (cx, cy, w, h, c, cls = 'bd') => (g[cls] ??= []).push(`<rect x="${cx}" y="${cy}" width="${w}" height="${h}" fill="${c}"/>`)
   ;(costumes[costume] ?? costumes.other)!(f, color)
-  return `<g transform="translate(${x},${y}) scale(1.1)" shape-rendering="crispEdges"><g class="${running ? 'run' : ''}"><g class="bd">${g.bd!.join('')}<g class="it">${g.it!.join('')}</g></g><g class="la">${g.la!.join('')}</g><g class="lb">${g.lb!.join('')}</g></g></g>`
+  return `<g transform="translate(${x},${y}) scale(1.1)" shape-rendering="crispEdges"><g class="c-${costume}${running ? ' run' : ''}"><g class="bd">${g.bd!.join('')}<g class="it">${g.it!.join('')}</g>${Object.keys(g).filter(k => !['bd', 'la', 'lb', 'it'].includes(k)).map(k => `<g class="${k}">${g[k]!.join('')}</g>`).join('')}</g><g class="la">${g.la!.join('')}</g><g class="lb">${g.lb!.join('')}</g></g></g>`
 }
 
 export const CSS = `<style>
@@ -96,7 +159,27 @@ export const CSS = `<style>
 .run .it{transform-origin:50% 100%;animation:sw .5s ease-in-out infinite}
 @keyframes st{50%{transform:translateY(-1px)}}@keyframes bob{50%{transform:translateY(1px)}}@keyframes sw{50%{transform:rotate(-14deg)}}
 .live{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.3}}
-@media (prefers-reduced-motion: reduce){.run,.run g,.run .la,.run .lb,.run .bd,.run .it,.live{animation:none!important}}
+.c-astronaut.run{animation:float 1s ease-in-out infinite}
+.c-astronaut.run .la,.c-astronaut.run .lb,.c-astronaut.run .bd{animation:none}
+.c-astronaut.run .ant{animation:blink 1s steps(1) infinite}
+.c-astronaut.run .star{animation:blink .5s steps(1) infinite -.25s}
+@keyframes float{50%{transform:translateY(-2px)}}@keyframes blink{50%{opacity:.15}}
+.c-detective.run .it{animation:scan 1s steps(1) infinite}
+.c-detective.run .gl{animation:blink 1s steps(1) infinite -.5s}
+@keyframes scan{25%{transform:translate(-1px,1px)}50%{transform:translate(-2px,2px)}75%{transform:translate(-1px,1px)}}
+.c-engineer.run .it{transform-origin:100% 100%;animation:twist .5s ease-in-out infinite}
+@keyframes twist{50%{transform:rotate(-35deg)}}
+.c-chef.run .pan{transform-origin:0 50%;animation:tilt 1s ease-in-out infinite}
+.c-chef.run .egg{animation:flip 1s ease-in-out infinite}
+@keyframes tilt{20%,40%{transform:rotate(-12deg)}}@keyframes flip{30%{transform:translateY(-5px) scaleY(-1)}60%{transform:translateY(0)}}
+.c-racer.run .la{animation-duration:.25s}.c-racer.run .lb{animation-duration:.25s;animation-delay:-.125s}
+.c-racer.run .flag{transform-origin:0 50%;animation:wave .25s steps(1) infinite}
+@keyframes wave{50%{transform:skewY(-12deg) scaleX(.85)}}
+.c-pirate.run .it{transform-origin:50% 100%;animation:fence .5s ease-in-out infinite}
+@keyframes fence{50%{transform:rotate(25deg)}}
+.c-ninja.run .shu{transform-origin:50% 50%;animation:spin .5s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.run,.run g,.run .la,.run .lb,.run .bd,.run .it,.live,.ant,.star,.gl,.pan,.egg,.flag,.shu{animation:none!important}}
 </style>`
 
 export const LIVE_H = 74
@@ -106,11 +189,11 @@ export const gradeColor = (g: string) => (g === 'A' || g === 'B' ? GREEN : g ===
 
 // The card is two drawings side by side: the crab (with the close button under it) and the text and bars.
 export const crabSvg = (a: LiveAgent): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${CRAB_W}" height="${CRAB_H}" viewBox="0 0 ${CRAB_W} ${CRAB_H}">${CSS}${crab(0, 14, costumeOf(a.type), FAMCOL[a.fam] ?? '#8E929A', a.status === 'running')}</svg>`
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${CRAB_W}" height="${CRAB_H}" viewBox="0 0 ${CRAB_W} ${CRAB_H}">${CSS}${crab(0, 14, costumeOf(a.type), TIERCOL[costumeOf(a.type)] ?? FAMCOL[a.fam] ?? '#8E929A', a.status === 'running')}</svg>`
 
 export const liveSvg = (W: number, a: LiveAgent, at: number): string => {
   const s = stats(a, at)
-  const col = FAMCOL[a.fam] ?? '#8E929A'
+  const col = TIERCOL[costumeOf(a.type)] ?? FAMCOL[a.fam] ?? '#8E929A'
   const BW = W - 6
   const running = a.status === 'running'
   const effCol = s.eff >= 100 ? GREEN : AMBER
