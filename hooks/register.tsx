@@ -365,10 +365,10 @@ export const register: Register = (on, options) => {
         const W = Math.max(260, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
         const ops = (await read($, opsAtom)).ops.map(o => o.id ?? o.name)
         const looks = looksOf(ops.length ? ops : st.ops.map(o => o.id))
-        const { svg, h } = statusSvg(W, st, looks, now)
+        const { svg, h: tall } = statusSvg(W, st, looks, now)
         return (
           <Box flexDirection="column">
-            <Svg key="status" source={svg} alt={`Sync status: ${st.total ? st.total.pct + '% of the Beta' : ''}, ${st.ops.length} operators`} width={W} height={h} />
+            <Svg key="status" source={svg} alt={`Sync status: ${st.total ? st.total.pct + '% of the Beta' : ''}, ${st.ops.length} operators`} width={W} height={tall} />
           </Box>
         )
       }
