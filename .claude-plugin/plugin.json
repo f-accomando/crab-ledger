@@ -1,6 +1,6 @@
 {
   "name": "crab-ledger",
-  "version": "0.3.19",
+  "version": "0.3.20",
   "description": "Side pane: daily tokens, minutes, git lines, cost estimate, efficiency trend, most re-read files and what to optimize, subagents included. Animated pixel crab.",
   "author": {
     "name": "Francesco Accomando"
@@ -26,6 +26,12 @@
       "title": "Sync branch",
       "description": "Branch that holds SYNC.md and sync/ (for example sync/my-project). \"auto\" picks the most recently updated origin/sync/* branch that has a sync/operators.toml, and falls back to the default branch.",
       "default": "auto"
+    },
+    "statusFile": {
+      "type": "string",
+      "title": "Sync status page (status.md)",
+      "description": "A second tab \"Sync status\" drawn from this markdown page (operators, queues, reviews, requests for you, Beta progress). ~ is your home folder. The tab only appears when the file exists; empty turns it off.",
+      "default": "~/bm-status/status.md"
     },
     "autoCloseSeconds": {
       "type": "number",

@@ -81,6 +81,23 @@ export type Team = {
   /** every day with tracked time, for the baseline of the efficiency */
   all: string[]
 }
+export type StArea = { name: string; pct: number; done: number; total: number; rev: number; asg: number; una: number }
+export type StOp = { id: string; state: string; age: string; task: string; queue: string[]; review: { wo: string; sha: string }[] }
+/** The sync status page (status.md): operators with their queues, reviews, requests for the user and the progress of the Beta. */
+export type Status = {
+  stamp: string
+  next: string
+  meta: string
+  ops: StOp[]
+  unassigned: string[]
+  awaiting: { wo: string; sha: string; op: string }[]
+  recent: { when: string; verdict: string; wo: string }[]
+  legacy: string[]
+  requests: string[]
+  note: string
+  total: StArea | null
+  areas: StArea[]
+}
 export type Reread = { path: string; reads: number; rereads: number; cost: number; tok: number }
 export type Report = {
   at: number
@@ -96,6 +113,6 @@ export type Report = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number; ops: { ops: Op[]; chain: string; team: Team | null } }
+    'crab-ledger': { report: Report | null; note: string; live: LiveAgent[]; now: number; status: Status | null; ops: { ops: Op[]; chain: string; team: Team | null } }
   }
 }

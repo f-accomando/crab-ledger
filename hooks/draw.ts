@@ -14,10 +14,10 @@ export const num = (n: number) =>
 export const usd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`)
 export const dur = (m: number) => (m >= 90 ? `${(m / 60).toFixed(1)}h` : `${Math.round(m)}m`)
 
-const xml = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
+export const xml = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 const charEm = (ch: string) => (/[\s.,:;'|!il1()[\]/]/.test(ch) ? 0.3 : /[A-Zmw@%]/.test(ch) ? 0.72 : 0.56)
-const textW = (s: string, size: number) => [...s].reduce((w, ch) => w + charEm(ch) * size, 0)
-const fit = (s: string, size: number, maxW: number) => {
+export const textW = (s: string, size: number) => [...s].reduce((w, ch) => w + charEm(ch) * size, 0)
+export const fit = (s: string, size: number, maxW: number) => {
   if (textW(s, size) <= maxW) return s
   let out = ''
   for (const ch of s) {
