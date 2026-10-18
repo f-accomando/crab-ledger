@@ -348,47 +348,56 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: STATUS_PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
-    const st = await read($, statusAtom)
-    if (!st) {
+    try {
+      const st = await read($, statusAtom)
+      if (!st) {
+        return (
+          <Box flexDirection="column">
+            <Text bold>Sync status</Text>
+            <Text dimColor>reading {statusFile}…</Text>
+          </Box>
+        )
+      }
+      const now = await $.clock.now()
+      const age = stampAge(st.stamp, now)
+      if ('Svg' in ui) {
+        const { Svg } = ui as unknown as { Svg: (p: { source: string; alt: string; width?: number; height?: number }) => unknown }
+        const W = Math.max(260, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
+        const ops = (await read($, opsAtom)).ops.map(o => o.id ?? o.name)
+        const looks = looksOf(ops.length ? ops : st.ops.map(o => o.id))
+        const { svg, h } = statusSvg(W, st, looks, now)
+        return (
+          <Box flexDirection="column">
+            <Svg key="status" source={svg} alt={`Sync status: ${st.total ? st.total.pct + '% of the Beta' : ''}, ${st.ops.length} operators`} width={W} height={h} />
+          </Box>
+        )
+      }
+      return (
+        <Box flexDirection="column">
+          <Text bold>Sync status {st.total ? `· ${st.total.pct}% (${st.total.done}/${st.total.total})` : ''}</Text>
+          <Text dimColor>{st.stamp}{st.next ? ` · next ${st.next}` : ''}{age !== undefined && age > 35 ? ` · ⚠ ${age}m old` : ''}</Text>
+          {st.requests.length > 0 && <Text color="yellow">Needs you: {st.requests.length}</Text>}
+          {st.requests.map(q => (
+            <Text key={q} color="yellow">  {q}</Text>
+          ))}
+          {st.ops.map(o => (
+            <Box key={o.id} flexDirection="column">
+              <Text><Text bold>{o.id}</Text> {o.state} <Text dimColor>{o.age} · {o.task}</Text></Text>
+              {o.queue.length > 0 && <Text dimColor>  queue: {o.queue.join(', ')}</Text>}
+              {o.review.length > 0 && <Text dimColor>  review: {o.review.map(r => r.wo).join(', ')}</Text>}
+            </Box>
+          ))}
+          <Text dimColor>reviews awaiting {st.awaiting.length} · not assigned {st.unassigned.length}</Text>
+        </Box>
+      )
+    } catch (err) {
       return (
         <Box flexDirection="column">
           <Text bold>Sync status</Text>
-          <Text dimColor>no status page found ({statusFile})</Text>
+          <Text color="red">error: {String((err as Error).message ?? err).slice(0, 200)}</Text>
         </Box>
       )
     }
-    const now = await $.clock.now()
-    const age = stampAge(st.stamp, now)
-    if ('Svg' in ui) {
-      const { Svg } = ui as unknown as { Svg: (p: { source: string; alt: string; width?: number; height?: number }) => unknown }
-      const W = Math.max(260, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
-      const ops = (await read($, opsAtom)).ops.map(o => o.id ?? o.name)
-      const looks = looksOf(ops.length ? ops : st.ops.map(o => o.id))
-      const { svg, h } = statusSvg(W, st, looks, now)
-      return (
-        <Box flexDirection="column">
-          <Svg key="status" source={svg} alt={`Sync status: ${st.total ? st.total.pct + '% of the Beta' : ''}, ${st.ops.length} operators`} width={W} height={h} />
-        </Box>
-      )
-    }
-    return (
-      <Box flexDirection="column">
-        <Text bold>Sync status {st.total ? `· ${st.total.pct}% (${st.total.done}/${st.total.total})` : ''}</Text>
-        <Text dimColor>{st.stamp}{st.next ? ` · next ${st.next}` : ''}{age !== undefined && age > 35 ? ` · ⚠ ${age}m old` : ''}</Text>
-        {st.requests.length > 0 && <Text color="yellow">Needs you: {st.requests.length}</Text>}
-        {st.requests.map(q => (
-          <Text key={q} color="yellow">  {q}</Text>
-        ))}
-        {st.ops.map(o => (
-          <Box key={o.id} flexDirection="column">
-            <Text><Text bold>{o.id}</Text> {o.state} <Text dimColor>{o.age} · {o.task}</Text></Text>
-            {o.queue.length > 0 && <Text dimColor>  queue: {o.queue.join(', ')}</Text>}
-            {o.review.length > 0 && <Text dimColor>  review: {o.review.map(r => r.wo).join(', ')}</Text>}
-          </Box>
-        ))}
-        <Text dimColor>reviews awaiting {st.awaiting.length} · not assigned {st.unassigned.length}</Text>
-      </Box>
-    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
