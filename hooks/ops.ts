@@ -7,17 +7,15 @@ export type { Op, OpState, Team }
 
 export type Reg = { id: string; name: string; kind: string; file: string; ledger: string; branches: string[]; cost: string }
 export const OPS_SILENT_MIN = 60
-/** past its ETA by this much, an operator in WORKING or WAITING counts as IDLE (with no ETA: no update for OPS_SILENT_MIN) */
-export const ETA_GRACE_MIN = 10
 
 /** The ETA as an instant, when it is written as an ISO time. */
 const etaMs = (eta: string): number | undefined => (/\dT\d/.test(eta) ? isoMs(eta) : undefined)
 
-/** WORKING or WAITING and past the ETA + 10 minutes, or (no ISO ETA) silent for 60 minutes. FREE and DONE are never silent. */
-export const isSilent = (o: Op, now: number): boolean => {
+/** WORKING or WAITING and past the declared ETA, or (no ISO ETA) not updated for 60 minutes. The tag stays as declared; FREE and DONE are never overdue. */
+export const isOverdue = (o: Op, now: number): boolean => {
   if (o.state !== 'WORKING' && o.state !== 'WAITING') return false
   const e = etaMs(o.eta)
-  if (e !== undefined) return now > e + ETA_GRACE_MIN * 60_000
+  if (e !== undefined) return now > e
   return o.updated !== undefined && now - o.updated > OPS_SILENT_MIN * 60_000
 }
 
@@ -140,7 +138,7 @@ export const parseOps = (sync: string, files: Record<string, string>, now: numbe
   const ops: Op[] = list.map(({ id, name }) => {
     const row = rows.get(name.toLowerCase())
     const fi = id && files[id] ? parseFile(files[id]!) : null
-    const op: Op = { id, name, state: row?.state ?? '?', task: row?.task ?? '', detail: row?.detail ?? '', eta: row?.eta ?? '', source: 'table', silent: false, clash: false }
+    const op: Op = { id, name, state: row?.state ?? '?', task: row?.task ?? '', detail: row?.detail ?? '', eta: row?.eta ?? '', source: 'table', overdue: false, clash: false }
     if (fi) {
       op.updated = fi.updated
       op.fileState = fi.state
@@ -153,7 +151,7 @@ export const parseOps = (sync: string, files: Record<string, string>, now: numbe
         op.clash = !!row && fi.state !== row.state && !(fi.state === 'FREE' && row.state === 'DONE')
         if (!row) Object.assign(op, { state: fi.state, task: fi.task })
       }
-      op.silent = isSilent(op, now)
+      op.overdue = isOverdue(op, now)
     }
     return op
   })
@@ -310,7 +308,7 @@ const xml = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;
 const fit = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.max(1, n - 1))}…` : s)
 const COSTUME: Record<string, string> = { spv: 'planner', 'claude local': 'planner', cld: 'research', 'claude cloud': 'research', agy: 'mechanic', antigravity: 'mechanic' }
 export const stateColor = (o: Op) =>
-  o.silent ? RED : o.state === 'DONE' ? GREEN : o.state === 'WORKING' ? BLUE : o.state === 'WAITING' ? AMBER : o.state === 'IDLE' ? RED : o.state === 'FREE' ? '#4FB0A8' : '#8E929A'
+  o.overdue ? RED : o.state === 'DONE' ? GREEN : o.state === 'WORKING' ? BLUE : o.state === 'WAITING' ? AMBER : o.state === 'IDLE' ? RED : o.state === 'FREE' ? '#4FB0A8' : '#8E929A'
 export const ago = (ms: number) => (ms < 90_000 ? 'now' : ms < 90 * 60_000 ? `${Math.round(ms / 60_000)} min ago` : `${(ms / 3_600_000).toFixed(1)} h ago`)
 const hhmm = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 /** "2026-10-14T10:30+02:00" shows as the local clock time; the table's free text stays as written. */
@@ -323,23 +321,27 @@ const etaText = (eta: string) => {
 export const OP_H = 92
 export const opSvg = (W: number, o: Op, now: number, look?: Look): string => {
   const col = stateColor(o)
-  const live = o.state === 'WORKING' && !o.silent
+  const live = o.state === 'WORKING' && !o.overdue
   const age = o.updated !== undefined ? Math.max(0, now - o.updated) : undefined
-  const fresh = age === undefined ? 0 : Math.max(0, 1 - age / (OPS_SILENT_MIN * 60_000))
-  const freshCol = age === undefined ? '#8E929A' : age < 15 * 60_000 ? GREEN : age < OPS_SILENT_MIN * 60_000 ? AMBER : RED
+  // the bar is the time left to the declared ETA (full at the last update, empty at the ETA); with no ISO ETA it is 60 minutes from the last update
+  const eta = etaMs(o.eta)
+  const span = eta !== undefined && o.updated !== undefined && eta > o.updated ? eta - o.updated : OPS_SILENT_MIN * 60_000
+  const left = eta !== undefined ? eta - now : age === undefined ? 0 : span - age
+  const fresh = age === undefined ? 0 : Math.max(0, Math.min(1, left / span))
+  const freshCol = age === undefined ? '#8E929A' : left <= 0 ? RED : fresh > 0.25 ? GREEN : AMBER
   const X = 44
   const BW = W - X - 6
-  // the tag is one word; why it is IDLE or who it waits for goes in the lines around it
-  const shown = o.silent ? 'IDLE' : o.state
+  // the tag is the declared state; being past the ETA shows in its color and in the warning
+  const shown = o.state
   const sub = o.task ? o.task : o.detail
   const waits = o.state === 'WAITING' && o.waitingOn ? `waiting on ${o.waitingOn}` : ''
-  const lines = [sub, waits || (o.silent || o.clash || o.detail === sub ? '' : o.detail)].filter(Boolean)
+  const lines = [sub, waits || (o.clash || o.detail === sub ? '' : o.detail)].filter(Boolean)
   const warn = o.clash
     ? `table says ${o.state}, its own file says ${o.fileState}${o.fileTask ? ' ' + o.fileTask : ''}`
-    : o.silent
+    : o.overdue
       ? etaMs(o.eta) !== undefined
-        ? `${ago(now - etaMs(o.eta)!).replace(' ago', '')} past its ETA: counts as IDLE (rule: ETA + ${ETA_GRACE_MIN} min)`
-        : `no update for ${ago(age ?? 0).replace(' ago', '')}: counts as IDLE (rule: ${OPS_SILENT_MIN} min)`
+        ? `${ago(now - etaMs(o.eta)!).replace(' ago', '')} past its ETA, no update`
+        : `no update for ${ago(age ?? 0).replace(' ago', '')}`
       : ''
   // how it is reachable: does it wake itself up, and how much of the Log of SYNC.md has it read
   const read =
@@ -357,6 +359,6 @@ ${crab(0, 16, look?.costume ?? COSTUME[(o.id ?? o.name).toLowerCase()] ?? COSTUM
 <rect class="k" x="${X}" y="54" width="${BW}" height="5" rx="2.5"/>${age === undefined ? '' : `<rect x="${X}" y="54" width="${Math.max(3, fresh * BW)}" height="5" rx="2.5" fill="${freshCol}"/>`}
 <text class="m" x="${X}" y="72" font-size="10">${age === undefined ? 'no file of its own: freshness not tracked' : `last update ${xml(hhmm(o.updated!))} · ${xml(ago(age))}`}${o.source === 'text' ? ' · old format' : ''}</text>
 ${badges}
-${warn ? `<text x="${W - 6}" y="72" font-size="10" text-anchor="end" fill="${o.silent ? RED : AMBER}">${xml(fit('⚠ ' + warn, Math.floor((BW - 120) / 5.3)))}</text>` : ''}
+${warn ? `<text x="${W - 6}" y="72" font-size="10" text-anchor="end" fill="${o.overdue ? RED : AMBER}">${xml(fit('⚠ ' + warn, Math.floor((BW - 120) / 5.3)))}</text>` : ''}
 </svg>`
 }

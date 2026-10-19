@@ -60,8 +60,8 @@ export type Op = {
   fileTask?: string
   /** ms since epoch of the last update the operator wrote */
   updated?: number
-  /** WORKING but silent for over 60 minutes */
-  silent: boolean
+  /** WORKING or WAITING past its declared ETA (no ETA: not updated for 60 minutes); the tag stays as declared */
+  overdue: boolean
   /** the table and the operator's own file disagree (only when the operator has no header block) */
   clash: boolean
 }

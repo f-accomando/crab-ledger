@@ -433,13 +433,13 @@ export const register: Register = (on, options) => {
     const opsBlock = (Svg: any) =>
       !wantOperators || opsData.ops.length === 0 ? null : (
         <Box flexDirection="column">
-          <Text bold>Operators <Text dimColor>(sync/ · bar = time since last update, empty at 60 min)</Text></Text>
+          <Text bold>Operators <Text dimColor>(sync/ · bar = time left to the declared ETA, empty at the ETA; no ETA: 60 min from the last update)</Text></Text>
           {opsData.ops.map(o =>
             Svg ? (
-              <Svg key={`o${o.name}`} source={opSvg(W0, o, at, looks[o.id ?? o.name])} alt={`${o.name}: ${o.silent ? 'IDLE' : o.state}`} width={W0} height={OP_H} />
+              <Svg key={`o${o.name}`} source={opSvg(W0, o, at, looks[o.id ?? o.name])} alt={`${o.name}: ${o.state}${o.overdue ? ', past its ETA' : ''}`} width={W0} height={OP_H} />
             ) : (
               <Text key={`o${o.name}`}>
-                <Text color={stateColor(o) === '#D0453F' ? 'red' : o.state === 'WORKING' ? 'blue' : o.state === 'DONE' ? 'green' : 'yellow'}>●</Text> {o.name} <Text bold>{o.silent ? 'IDLE' : o.state}</Text> <Text dimColor>{o.task || o.detail}{o.state === 'WAITING' && o.waitingOn ? ` · waiting on ${o.waitingOn}` : ''}{o.silent ? ' · silent for over 60 min' : ''}{o.clash ? ` · ⚠ file says ${o.fileState}` : ''}</Text>
+                <Text color={stateColor(o) === '#D0453F' ? 'red' : o.state === 'WORKING' ? 'blue' : o.state === 'DONE' ? 'green' : 'yellow'}>●</Text> {o.name} <Text bold>{o.state}</Text> <Text dimColor>{o.task || o.detail}{o.state === 'WAITING' && o.waitingOn ? ` · waiting on ${o.waitingOn}` : ''}{o.overdue ? ' · past its ETA' : ''}{o.clash ? ` · ⚠ file says ${o.fileState}` : ''}</Text>
               </Text>
             ),
           )}

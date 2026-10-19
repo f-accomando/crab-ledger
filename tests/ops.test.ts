@@ -12,7 +12,7 @@ Catena che blocca i video: 1 -> 2
 `
 const stamp = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 
-test('without a registry the table rows are read, a silent WORKING operator counts as IDLE and a clash is flagged; utente is not an operator', async () => {
+test('without a registry the table rows are read, a WORKING operator past its ETA is overdue and a clash is flagged; utente is not an operator', async () => {
   const now = new Date(2026, 9, 14, 12, 0).getTime()
   const files = {
     CLD: `**Ultimo aggiornamento:** ${stamp(new Date(now - 5 * 60_000))}\n**Stato:** \`WORKING video 4\``,
@@ -21,8 +21,8 @@ test('without a registry the table rows are read, a silent WORKING operator coun
   const { ops, chain } = parseOps(SYNC, files, now)
   expect(ops.map(o => o.name)).toEqual(['Claude Cloud', 'Antigravity'])
   expect(ops[0]!.clash).toBe(true)
-  expect(ops[0]!.silent).toBe(false)
-  expect(ops[1]!.silent).toBe(true)
+  expect(ops[0]!.overdue).toBe(false)
+  expect(ops[1]!.overdue).toBe(true)
   expect(chain).toMatch(/^Catena/)
 })
 
@@ -76,9 +76,9 @@ test('the header block is the truth, times are compared as instants and humans a
   expect(ops.map(o => o.id)).toEqual(['SPV', 'AGY'])
   expect(ops[0]!.source).toBe('block')
   expect(ops[0]!.waitingOn).toBe('utente')
-  expect(ops[0]!.silent).toBe(false)
-  // AGY says WORKING since 09:00Z = 11:00 in Rome: 90 minutes of silence
-  expect(ops[1]!.silent).toBe(true)
+  expect(ops[0]!.overdue).toBe(false)
+  // AGY says WORKING since 09:00Z = 11:00 in Rome: 90 minutes without update
+  expect(ops[1]!.overdue).toBe(true)
 })
 
 test('WORKING time is counted per day and one stretch is cut at the silence limit', async () => {
@@ -104,17 +104,17 @@ test('efficiency: writers by lines per hour, the others by tasks per hour, 100 =
   expect(effOf(team, 'SPV', day(15))).toBe(0)
 })
 
-test('with an ETA, IDLE starts 10 minutes after it; FREE and DONE are never silent', async () => {
+test('a WORKING or WAITING operator is overdue the moment its ETA passes (no ETA: 60 minutes without update); FREE and DONE never are', async () => {
   const mk = (state: string, eta: string, updated: string) => `---\nid: SPV\nstate: ${state}\ntask: x\neta: ${eta}\nupdated: ${updated}\n---\n`
   const reg = parseToml('[[operator]]\nid = "SPV"\nname = "Claude local"\nkind = "ai"\nfile = "sync/SPV.md"\n')
   const at = (iso: string) => Date.parse(iso)
-  const silent = (state: string, eta: string, upd: string, now: string) => parseOps('', { SPV: mk(state, eta, upd) }, at(now), reg).ops[0]!.silent
-  expect(silent('WORKING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:09+02:00')).toBe(false)
-  expect(silent('WORKING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:11+02:00')).toBe(true)
-  expect(silent('WAITING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:11+02:00')).toBe(true)
-  expect(silent('FREE', '', '2026-10-15T08:00+02:00', '2026-10-15T20:00+02:00')).toBe(false)
-  expect(silent('DONE', '', '2026-10-15T08:00+02:00', '2026-10-15T20:00+02:00')).toBe(false)
-  expect(silent('WORKING', '', '2026-10-15T10:00+02:00', '2026-10-15T11:10+02:00')).toBe(true)
+  const overdue = (state: string, eta: string, upd: string, now: string) => parseOps('', { SPV: mk(state, eta, upd) }, at(now), reg).ops[0]!.overdue
+  expect(overdue('WORKING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T11:59+02:00')).toBe(false)
+  expect(overdue('WORKING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:01+02:00')).toBe(true)
+  expect(overdue('WAITING', '2026-10-15T12:00+02:00', '2026-10-15T10:00+02:00', '2026-10-15T12:01+02:00')).toBe(true)
+  expect(overdue('FREE', '', '2026-10-15T08:00+02:00', '2026-10-15T20:00+02:00')).toBe(false)
+  expect(overdue('DONE', '', '2026-10-15T08:00+02:00', '2026-10-15T20:00+02:00')).toBe(false)
+  expect(overdue('WORKING', '', '2026-10-15T10:00+02:00', '2026-10-15T11:10+02:00')).toBe(true)
 })
 
 test('a template placeholder is shown as plain text', async () => {

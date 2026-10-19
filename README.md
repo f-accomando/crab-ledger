@@ -26,7 +26,7 @@ subagents) and asks `git` for the lines you added and deleted. Nothing leaves yo
 - **Operators** (only in a repo with a `sync/operators.toml` or a `SYNC.md`): the AIs that coordinate through
   `sync/`, read from the remote default branch (`git fetch` at most every 5 minutes, your working tree is not touched).
   One card each: state (`DONE`, `WORKING`, `WAITING`, `IDLE`, `FREE`; who it waits for is on the second line), task, progress, ETA and a bar for the time
-  since its last update (empty at 60 minutes). A `WORKING` or `WAITING` operator counts as `IDLE` 10 minutes after its `eta` (60 minutes without update when it has no `eta`); `FREE` and `DONE` never do. People
+  left to the declared `eta` (full at the last update, empty at the `eta`; 60 minutes from the last update when there is no `eta`). A `WORKING` or `WAITING` operator keeps its tag when it goes past its `eta` without an update: the tag turns red and the card says how long ago the `eta` passed. `FREE` and `DONE` never do. People
   (`kind = "human"`) are not shown. See [sync/ convention](#sync-convention).
 - **Operators day by day** (up to 3 days, and Day by day drops to 7 days): a bar per day split by operator (share of
   lines, measured from the git branches of the registry) and one line `spv +662/-185 eff 52 · cld ... · 3.2k lines`.
