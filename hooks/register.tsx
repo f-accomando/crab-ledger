@@ -1,20 +1,17 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { LiveAgent, Op, OpState, Report, Status, Team } from '../types'
+import type { LiveAgent, Op, OpState, Report, Team } from '../types'
 import { OP_H, WRITER_LINES, effOf, globRe, ledgerRows, looksOf, localDay, opSvg, parseFile, parseOps, parseToml, stateColor, teamHeight, teamSvg, workMinutes } from './ops'
 import type { Reg } from './ops'
 import { CRAB_H, CRAB_W, LIVE_H, costOf, crabSvg, famOf, leftText, liveSvg, stats, typical } from './live'
-import { parseStatus, stampAge, statusSvg } from './status'
 import { agentsHeight, agentsSvg, daysSvg, dur, headerSvg, moodOf, num, repeatedSvg, rereadSvg, usd, weekSvg } from './draw'
 
 const PANE = 'crab-ledger'
-const STATUS_PANE = 'crab-status'
 const report = atom({ plugin: 'crab-ledger', key: 'report' } as const, null)
 const note = atom({ plugin: 'crab-ledger', key: 'note' } as const, 'loading…')
 const live = atom({ plugin: 'crab-ledger', key: 'live' } as const, [] as LiveAgent[])
 const opsAtom = atom({ plugin: 'crab-ledger', key: 'ops' } as const, { ops: [] as Op[], chain: '', team: null as Team | null })
-const statusAtom = atom({ plugin: 'crab-ledger', key: 'status' } as const, null as Status | null)
 const nowAt = atom({ plugin: 'crab-ledger', key: 'now' } as const, 0)
 
 
@@ -207,25 +204,6 @@ async function refreshOps($: any, syncBranch: string) {
   }
 }
 
-// The sync status page (status.md, written by the sync supervisor): read again when its text changes.
-let statusText_ = ''
-async function statusPath($: any, file: string): Promise<string> {
-  if (!file.startsWith('~')) return file
-  const home = ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '') as string
-  return home ? home.split(String.fromCharCode(92)).join('/') + file.slice(1) : file
-}
-async function refreshStatus($: any, file: string) {
-  try {
-    const txt = (await $.fs.read(await statusPath($, file))) as string
-    if (txt === statusText_) return
-    statusText_ = txt
-    const parsed = parseStatus(txt)
-    await update($, statusAtom, () => parsed)
-  } catch {
-    /* no file: the tab stays as it was */
-  }
-}
-
 let busy = false
 let frame = 0
 let lastKey = ''
@@ -259,21 +237,12 @@ export const register: Register = (on, options) => {
   const wantSubagents = options?.showSubagents !== false
   const wantOperators = options?.showOperators !== false
   const syncBranch = String(options?.syncBranch ?? 'auto')
-  const statusFile = String(options?.statusFile ?? '~/bm-status/status.md').trim()
   const autoClose = Math.max(0, Number(options?.autoCloseSeconds ?? 60) || 0) * 1000
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ledger',
       description: 'Open the crab ledger: tokens, time, git lines, cost and efficiency per day',
     })
-    if (statusFile) {
-      await $.command.register({ name: 'syncstatus', description: 'Open the sync status tab: operators, queues, reviews and Beta progress' })
-      if (await $.fs.exists(await statusPath($, statusFile))) {
-        await refreshStatus($, statusFile)
-        void $.ui.open({ id: STATUS_PANE, title: 'Sync status' })
-        $.clock.every(30_000, () => void refreshStatus($, statusFile))
-      }
-    }
     void $.ui.open({ id: PANE, title: 'Crab ledger' })
     void refresh($)
     if (wantOperators) void refreshOps($, syncBranch)
@@ -336,68 +305,6 @@ export const register: Register = (on, options) => {
     void refresh($)
 
     return { text: 'Crab ledger opened.' }
-  })
-
-  on('command.run', { command: 'syncstatus' }, async $ => {
-    await $.ui.open({ id: STATUS_PANE, title: 'Sync status', focus: true })
-    void refreshStatus($, statusFile)
-
-    return { text: 'Sync status opened.' }
-  })
-
-  on('ui.render', { component: 'Pane', requestId: STATUS_PANE }, async ($, e) => {
-    const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
-    try {
-      const st = await read($, statusAtom)
-      if (!st) {
-        return (
-          <Box flexDirection="column">
-            <Text bold>Sync status</Text>
-            <Text dimColor>reading {statusFile}…</Text>
-          </Box>
-        )
-      }
-      const now = await $.clock.now()
-      const age = stampAge(st.stamp, now)
-      if ('Svg' in ui) {
-        const { Svg } = ui as unknown as { Svg: (p: { source: string; alt: string; width?: number; height?: number }) => unknown }
-        const W = Math.max(260, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
-        const ops = (await read($, opsAtom)).ops.map(o => o.id ?? o.name)
-        const looks = looksOf(ops.length ? ops : st.ops.map(o => o.id))
-        const { svg, h: tall } = statusSvg(W, st, looks, now)
-        return (
-          <Box flexDirection="column">
-            <Svg key="status" source={svg} alt={`Sync status: ${st.total ? st.total.pct + '% of the Beta' : ''}, ${st.ops.length} operators`} width={W} height={tall} />
-          </Box>
-        )
-      }
-      return (
-        <Box flexDirection="column">
-          <Text bold>Sync status {st.total ? `· ${st.total.pct}% (${st.total.done}/${st.total.total})` : ''}</Text>
-          <Text dimColor>{st.stamp}{st.next ? ` · next ${st.next}` : ''}{age !== undefined && age > 35 ? ` · ⚠ ${age}m old` : ''}</Text>
-          {st.requests.length > 0 && <Text color="yellow">Needs you: {st.requests.length}</Text>}
-          {st.requests.map(q => (
-            <Text key={q} color="yellow">  {q}</Text>
-          ))}
-          {st.ops.map(o => (
-            <Box key={o.id} flexDirection="column">
-              <Text><Text bold>{o.id}</Text> {o.state} <Text dimColor>{o.age} · {o.task}</Text></Text>
-              {o.queue.length > 0 && <Text dimColor>  queue: {o.queue.join(', ')}</Text>}
-              {o.review.length > 0 && <Text dimColor>  review: {o.review.map(r => r.wo).join(', ')}</Text>}
-            </Box>
-          ))}
-          <Text dimColor>reviews awaiting {st.awaiting.length} · not assigned {st.unassigned.length}</Text>
-        </Box>
-      )
-    } catch (err) {
-      return (
-        <Box flexDirection="column">
-          <Text bold>Sync status</Text>
-          <Text color="red">error: {String((err as Error).message ?? err).slice(0, 200)}</Text>
-        </Box>
-      )
-    }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
