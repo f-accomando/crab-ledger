@@ -1,6 +1,6 @@
 {
   "name": "crab-ledger",
-  "version": "0.3.24",
+  "version": "0.3.25",
   "description": "Side pane: daily tokens, minutes, git lines, cost estimate, efficiency trend, most re-read files and what to optimize, subagents included. Animated pixel crab.",
   "author": {
     "name": "Francesco Accomando"
@@ -14,18 +14,6 @@
       "title": "Show live subagents",
       "description": "Cards for the subagents of the session (progress, time left, efficiency, final grade) in the ledger pane.",
       "default": true
-    },
-    "showOperators": {
-      "type": "boolean",
-      "title": "Show operators",
-      "description": "Operators sections: read sync/operators.toml, sync/<ID>.md and SYNC.md of the repo from its remote branch (git fetch every 5 minutes). Only appear when the repo has them.",
-      "default": true
-    },
-    "syncBranch": {
-      "type": "string",
-      "title": "Sync branch",
-      "description": "Branch that holds SYNC.md and sync/ (for example sync/my-project). \"auto\" picks the most recently updated origin/sync/* branch that has a sync/operators.toml, and falls back to the default branch.",
-      "default": "auto"
     },
     "autoCloseSeconds": {
       "type": "number",

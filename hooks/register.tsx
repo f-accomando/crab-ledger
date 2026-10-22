@@ -1,9 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { LiveAgent, Op, OpState, Report, Team } from '../types'
-import { OP_H, WRITER_LINES, effOf, globRe, ledgerRows, looksOf, localDay, opSvg, parseFile, parseOps, parseToml, stateColor, teamHeight, teamSvg, workMinutes } from './ops'
-import type { Reg } from './ops'
+import type { LiveAgent, Report } from '../types'
 import { CRAB_H, CRAB_W, LIVE_H, costOf, crabSvg, famOf, leftText, liveSvg, stats, typical } from './live'
 import { agentsHeight, agentsSvg, daysSvg, dur, headerSvg, moodOf, num, repeatedSvg, rereadSvg, usd, weekSvg } from './draw'
 
@@ -11,7 +9,6 @@ const PANE = 'crab-ledger'
 const report = atom({ plugin: 'crab-ledger', key: 'report' } as const, null)
 const note = atom({ plugin: 'crab-ledger', key: 'note' } as const, 'loading…')
 const live = atom({ plugin: 'crab-ledger', key: 'live' } as const, [] as LiveAgent[])
-const opsAtom = atom({ plugin: 'crab-ledger', key: 'ops' } as const, { ops: [] as Op[], chain: '', team: null as Team | null })
 const nowAt = atom({ plugin: 'crab-ledger', key: 'now' } as const, 0)
 
 
@@ -28,180 +25,6 @@ const statusText = (r: Report | null, frame: number) => {
   const t = r.week.trend
   const arrow = !t ? '' : t.pct >= 3 ? ` ▲${t.pct.toFixed(0)}%` : t.pct <= -3 ? ` ▼${Math.abs(t.pct).toFixed(0)}%` : ' ▬'
   return `${crab(r, frame)}${arrow} ${usd(today.cost)} · ${dur(today.min)} today · 7d ${usd(r.week.cost)}`
-}
-
-// Operators: sync/operators.toml, the header blocks of sync/<ID>.md and SYNC.md of the repo's remote default branch, read through git (a fetch at most every 5 minutes).
-let opsBusy = false
-let lastFetch = 0
-let teamKey = ''
-let teamCache: Team | null = null
-const stateAt = new Map<string, OpState>()
-const NOT_CODE = /\.(pdf|png|jpe?g|gif|webp|ico|bmp|mp4|mov|mp3|ogg|wav|zip|gz|7z|woff2?|ttf|bin|img|glb)$/i
-const DAYS_BACK = 7
-
-async function readTeam(git: (a: string[], t?: number) => Promise<string | null>, reg: Reg[], sync: string, at: number, ref: string): Promise<Team | null> {
-  const ai = reg.filter(r => r.kind !== 'human')
-  const heads = (await git(['for-each-ref', '--format=%(objectname) %(refname:short)', 'refs/remotes/origin'])) ?? ''
-  const key = `${heads}|${localDay(at)}|${ref}`
-  if (key === teamKey) return teamCache
-  teamKey = key
-  const names = heads.split('\n').map(l => l.split(' ')[1] ?? '').filter(Boolean).map(n => n.replace(/^origin\//, ''))
-  const since = `--since=${new Date(at - DAYS_BACK * 86_400_000).toISOString()}`
-  // lines, by branch: every commit that is on the operator's branches and not yet on the default branch; a commit on several goes to the smallest set
-  const sets: Record<string, Set<string>> = {}
-  const refsOf: Record<string, string[]> = {}
-  for (const o of ai) {
-    const res = o.branches.map(globRe)
-    refsOf[o.id] = names.filter(n => n !== 'HEAD' && res.some(re => re.test(n))).map(n => `origin/${n}`)
-    sets[o.id] = refsOf[o.id]!.length ? new Set(((await git(['rev-list', '--no-merges', since, ...refsOf[o.id]!, '^origin/HEAD'])) ?? '').split('\n').filter(Boolean)) : new Set()
-  }
-  const owner = new Map<string, string>()
-  for (const o of ai) for (const h of sets[o.id]!) if (!owner.has(h) || sets[owner.get(h)!]!.size > sets[o.id]!.size) owner.set(h, o.id)
-  const lines: Team['lines'] = {}
-  for (const o of ai) {
-    if (!refsOf[o.id]!.length) continue
-    const out = (await git(['log', '--no-merges', since, '--numstat', '--format=@%H|%aI', ...refsOf[o.id]!, '^origin/HEAD'], 60000)) ?? ''
-    let day = ''
-    let mine = false
-    for (const l of out.split('\n')) {
-      if (l.startsWith('@')) {
-        const [h, d] = l.slice(1).split('|')
-        mine = owner.get(h!) === o.id
-        day = localDay(Date.parse(d!))
-        continue
-      }
-      if (!mine) continue
-      const [a, del, f] = l.split('\t')
-      if (!f || !/^\d+$/.test(a ?? '') || !/^\d+$/.test(del ?? '') || NOT_CODE.test(f) || +a! + +del! > 3000) continue
-      const cell = (lines[`${day}|${o.id}`] ??= [0, 0])
-      cell[0] += +a!
-      cell[1] += +del!
-    }
-  }
-  // time in WORKING: the versions of the operator's file on the default branch
-  const work: Team['work'] = {}
-  for (const o of ai) {
-    if (!o.file) continue
-    const log = ((await git(['log', since, '--format=%H|%aI', '--reverse', ref, '--', o.file])) ?? '').split('\n').filter(Boolean).slice(-120)
-    const versions: { at: number; state: OpState }[] = []
-    for (const l of log) {
-      const [h, d] = l.split('|')
-      let st = stateAt.get(`${h}|${o.file}`)
-      if (!st) {
-        const txt = await git(['show', `${h}:${o.file}`])
-        st = (txt && parseFile(txt)?.state) || '?'
-        stateAt.set(`${h}|${o.file}`, st)
-      }
-      versions.push({ at: Date.parse(d!), state: st })
-    }
-    for (const [d, m] of Object.entries(workMinutes(versions, at))) work[`${d}|${o.id}`] = m
-  }
-  // tasks closed: the operator's .ledger.jsonl, else the Log of SYNC.md (DONE / READY rows whose author names it)
-  const tasks: Team['tasks'] = {}
-  const led: Team['led'] = {}
-  for (const o of ai) {
-    // the registry names the ledger; an operator that closes work orders has sync/<ID>.ledger.jsonl even when the registry says nothing
-    // sync_hdr.py --close writes sync/OP-<ID>.ledger.jsonl; older setups have sync/<ID>.ledger.jsonl
-    let rows: ReturnType<typeof ledgerRows> = []
-    for (const p of [o.ledger, `sync/OP-${o.id}.ledger.jsonl`, `sync/${o.id}.ledger.jsonl`]) {
-      const jl = p ? await git(['show', `${ref}:${p}`]) : null
-      if (jl && (rows = ledgerRows(jl)).length) break
-    }
-    if (rows.length) {
-      for (const r of rows) {
-        const k = `${r.day}|${o.id}`
-        tasks[k] = (tasks[k] ?? 0) + 1
-        if (r.wo) {
-          // no commits seen on the operator's branches (none registered, or merged already): the diff it declared stands in for them
-          if (!refsOf[o.id]!.length) {
-            const cell = (lines[k] ??= [0, 0])
-            cell[0] += r.add
-            cell[1] += r.del
-          }
-          const c = (led[k] ??= { n: 0, tok: 0, min: 0, lw: 0 })
-          c.n++
-          c.tok += r.tok
-          c.min += r.min
-          c.lw += r.lw
-        }
-      }
-      continue
-    }
-    const words = o.name.toLowerCase().split(/\s+/)
-    for (const l of sync.split('\n')) {
-      const c = l.split('|').map(x => x.trim())
-      if (c.length < 7 || !/^\d{4}-\d{2}-\d{2}/.test(c[1] ?? '')) continue
-      const who = (c[2] ?? '').toLowerCase()
-      if (!(who.includes(o.id.toLowerCase()) || words.every(w => who.includes(w))) || !/DONE|READY/.test(c[4] ?? '')) continue
-      const k = `${c[1]!.slice(0, 10)}|${o.id}`
-      tasks[k] = (tasks[k] ?? 0) + 1
-    }
-  }
-  const dayset = new Set<string>()
-  for (const k of [...Object.keys(lines), ...Object.keys(work)]) dayset.add(k.split('|')[0]!)
-  const days = [...dayset].sort().slice(-3) // oldest first, the latest day at the bottom, as in Day by day
-  const all = [...new Set(Object.keys(work).map(k => k.split('|')[0]!))]
-  teamCache = days.length ? { ops: ai.map(o => ({ id: o.id, name: o.name })), days, lines, work, tasks, led, all } : null
-  return teamCache
-}
-
-async function refreshOps($: any, syncBranch: string) {
-  if (opsBusy) return
-  opsBusy = true
-  try {
-    const git = async (args: string[], timeoutMs = 20000) => {
-      const r = await $.process.run(['git', ...args], { timeoutMs })
-      return r.exitCode === 0 ? (r.stdout as string) : null
-    }
-    const none = { ops: [] as Op[], chain: '', team: null as Team | null }
-    const at = await $.clock.now()
-    if ((await git(['rev-parse', '--git-dir'])) === null) return void (await update($, opsAtom, () => none))
-    if (at - lastFetch > 300_000) {
-      lastFetch = at
-      await git(['fetch', '-q', 'origin'], 40000)
-    }
-    // the branch that holds the sync: the one named in the settings, else the most recently updated origin/sync/* that has a registry, else the default branch
-    let ref = 'origin/HEAD'
-    if (syncBranch && syncBranch !== 'auto') ref = syncBranch.startsWith('origin/') ? syncBranch : `origin/${syncBranch}`
-    else {
-      const cands = ((await git(['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/remotes/origin/sync/'])) ?? '').split('\n').filter(Boolean)
-      for (const c of cands) {
-        if ((await git(['cat-file', '-e', `${c}:sync/operators.toml`])) !== null) {
-          ref = c
-          break
-        }
-      }
-    }
-    const toml = await git(['show', `${ref}:sync/operators.toml`])
-    const reg = toml ? parseToml(toml) : []
-    // an operator with a status file but no registry block yet (SPV has not added it) still takes part: its file and ledger are read
-    if (reg.length) {
-      const known = new Set(reg.map(r => r.id.toUpperCase()))
-      const tree = ((await git(['ls-tree', '--name-only', ref, 'sync/'])) ?? '').split('\n')
-      for (const p of tree) {
-        const id = /^sync\/([A-Za-z0-9-]{2,12})\.md$/.exec(p.trim())?.[1]
-        if (!id || id.startsWith('_') || known.has(id.toUpperCase())) continue
-        const txt = await git(['show', `${ref}:${p.trim()}`])
-        if (!txt || parseFile(txt)?.source !== 'block') continue
-        known.add(id.toUpperCase())
-        reg.push({ id, name: id, kind: 'ai', file: p.trim(), ledger: '', branches: [], cost: '' })
-      }
-    }
-    const sync = (await git(['show', `${ref}:SYNC.md`])) ?? ''
-    if (!sync && !reg.length) return void (await update($, opsAtom, () => none))
-    const files: Record<string, string> = {}
-    const wanted = reg.length ? reg.filter(r => r.file).map(r => [r.id, r.file] as const) : (['SPV', 'CLD', 'AGY'] as const).map(n => [n, `sync/${n}.md`] as const)
-    for (const [id, f] of wanted) {
-      const t = await git(['show', `${ref}:${f}`])
-      if (t !== null) files[id] = t
-    }
-    const parsed = { ...parseOps(sync, files, at, reg), team: reg.length ? await readTeam(git, reg, sync, at, ref) : null }
-    await update($, opsAtom, () => parsed)
-  } catch {
-    /* no repo, no network: the section stays as it was */
-  } finally {
-    opsBusy = false
-  }
 }
 
 let busy = false
@@ -235,8 +58,6 @@ async function refresh($: any) {
 
 export const register: Register = (on, options) => {
   const wantSubagents = options?.showSubagents !== false
-  const wantOperators = options?.showOperators !== false
-  const syncBranch = String(options?.syncBranch ?? 'auto')
   const autoClose = Math.max(0, Number(options?.autoCloseSeconds ?? 60) || 0) * 1000
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -245,11 +66,9 @@ export const register: Register = (on, options) => {
     })
     void $.ui.open({ id: PANE, title: 'Crab ledger' })
     void refresh($)
-    if (wantOperators) void refreshOps($, syncBranch)
     $.clock.every(90_000, () => {
       void refresh($)
-      if (wantOperators) void refreshOps($, syncBranch)
-    })
+      })
     $.clock.every(5_000, async () => {
       const list = await read($, live)
       const at = await $.clock.now()
@@ -265,7 +84,6 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     void refresh($)
-    if (!e.agentId && wantOperators) void refreshOps($, syncBranch)
     if (e.agentId) {
       const at = await $.clock.now()
       await update($, live, list => list.map(a => (a.id !== e.agentId ? a : { ...a, status: e.reason === 'answer' ? 'done' : 'failed', end: at })))
@@ -333,48 +151,8 @@ export const register: Register = (on, options) => {
           : `steady ▬ ${t.pct.toFixed(0)}%`
     const tColor = mood === 'up' ? 'green' : mood === 'down' ? 'red' : 'yellow'
     const rows = e.viewport?.rows ?? 40
-    let W0 = 300
     const agentsLive = await read($, live)
     const at = Math.max(await read($, nowAt), ...agentsLive.map(a => a.start), 0)
-    const opsData = await read($, opsAtom)
-    const opsBlock = (Svg: any) =>
-      !wantOperators || opsData.ops.length === 0 ? null : (
-        <Box flexDirection="column">
-          <Text bold>Operators <Text dimColor>(sync/ · bar = time left to the declared ETA, empty at the ETA; no ETA: 60 min from the last update)</Text></Text>
-          {opsData.ops.map(o =>
-            Svg ? (
-              <Svg key={`o${o.name}`} source={opSvg(W0, o, at, looks[o.id ?? o.name])} alt={`${o.name}: ${o.state}${o.overdue ? ', past its ETA' : ''}`} width={W0} height={OP_H} />
-            ) : (
-              <Text key={`o${o.name}`}>
-                <Text color={stateColor(o) === '#D0453F' ? 'red' : o.state === 'WORKING' ? 'blue' : o.state === 'DONE' ? 'green' : 'yellow'}>●</Text> {o.name} <Text bold>{o.state}</Text> <Text dimColor>{o.task || o.detail}{o.state === 'WAITING' && o.waitingOn ? ` · waiting on ${o.waitingOn}` : ''}{o.overdue ? ' · past its ETA' : ''}{o.clash ? ` · ⚠ file says ${o.fileState}` : ''}</Text>
-              </Text>
-            ),
-          )}
-        </Box>
-      )
-    const team = wantOperators ? opsData.team : null
-    const looks = looksOf(opsData.ops.map(o => o.id ?? o.name))
-    const teamBlock = (Svg: any) =>
-      !team ? null : (
-        <Box flexDirection="column">
-          <Text bold>Operators day by day <Text dimColor>(bar = share of lines per operator · eff = lines/h, or tasks/h under {WRITER_LINES} lines)</Text></Text>
-          {Svg ? (
-            <Svg key="team" source={teamSvg(W0, team, looks)} alt="Operators day by day" width={W0} height={teamHeight(team)} />
-          ) : (
-            team.days.map(d => (
-              <Text key={d}>
-                <Text dimColor>{d.slice(5)} </Text>
-                {team.ops.map(o => {
-                  const l = team.lines[`${d}|${o.id}`] ?? [0, 0]
-                  const e = effOf(team, o.id, d)
-                  return `${o.id.toLowerCase()} ${l[0] + l[1] >= WRITER_LINES ? `+${l[0]}/−${l[1]} ` : ''}eff ${e > 0 ? e : '–'} · `
-                })}
-                {num(team.ops.reduce((n, o) => n + (team.lines[`${d}|${o.id}`]?.[0] ?? 0) + (team.lines[`${d}|${o.id}`]?.[1] ?? 0), 0))} lines
-              </Text>
-            ))
-          )}
-        </Box>
-      )
     const dismiss = (id: string) => update($, live, list => list.filter(a => a.id !== id))
     const closeBtn = (a: LiveAgent) => <Button key={`x${a.id}`} label="close" plain onPress={() => dismiss(a.id)} />
     const liveBlock = (W: number | null, Svg: any) =>
@@ -432,9 +210,8 @@ export const register: Register = (on, options) => {
     if ('Svg' in ui) {
       const { Svg } = ui as unknown as { Svg: (p: { source: string; alt: string; width?: number; height?: number }) => unknown }
       const W = Math.max(260, Math.min(900, (e.props.bodyColumns || 40) * 8 - 8))
-      W0 = W
       const count0 = Math.max(5, Math.min(14, Math.floor((rows - 14) / 3)))
-      const count = team ? Math.min(7, count0) : count0
+      const count = count0
       const draw = (key: string, source: string, alt: string, height: number) => (
         <Svg key={key} source={source} alt={alt} width={W} height={height} />
       )
@@ -444,10 +221,8 @@ export const register: Register = (on, options) => {
           {draw('head', headerSvg(W, r), `Efficiency ${Math.round(r.week.eff)}: ${verdict}`, 156)}
           {draw('week', weekSvg(W, r), `Last 7 days: ${usd(r.week.cost)}, ${num(r.week.tok)} tokens, ${dur(r.week.min)}`, 146)}
           {liveBlock(W, Svg)}
-          {opsBlock(Svg)}
           <Text bold>Day by day <Text dimColor>(bar = efficiency, number = cost)</Text></Text>
           {draw('days', daysSvg(W, r, count), 'Efficiency per day', 30 + Math.min(count, r.days.length) * 34)}
-          {teamBlock(Svg)}
           <Text bold>Agents by type and model <Text dimColor>(7 days)</Text></Text>
           {r.agents.length === 0 ? <Text dimColor>none</Text> : draw('ag', agentsSvg(W, r), 'Agents by type and model', agentsHeight(r.agents.length))}
           <Text bold>Repeated tasks <Text dimColor>(3+ times in 7 days, time waited)</Text></Text>
@@ -481,7 +256,6 @@ export const register: Register = (on, options) => {
         </Text>
         <Text> </Text>
         {liveBlock(null, null)}
-        {opsBlock(null)}
         {wantSubagents && agentsLive.length > 0 && <Text> </Text>}
         {r.days.slice(-Math.max(5, Math.min(14, Math.floor((rows - 22) / 2)))).map(d => (
           <Box key={d.day} flexDirection="column">
@@ -496,8 +270,6 @@ export const register: Register = (on, options) => {
           </Box>
         ))}
         <Text> </Text>
-        {teamBlock(null)}
-        {team && <Text> </Text>}
         <Text bold>Agents <Text dimColor>(7 days)</Text></Text>
         {r.agents.slice(0, 6).map(a => (
           <Text key={`${a.type}|${a.fam}`}>
